@@ -8,8 +8,10 @@
     abandonWorkout,
   } from '../../lib/services/workouts';
   import { kgToDisplay, displayToKg, kmToDisplay, displayToKm, formatWeight, formatDistance, formatDuration } from '../../lib/utils/units';
+  import { topBodyParts } from '../../lib/utils/bodyparts';
   import type {
     Exercise,
+    MeasurementType,
     UserProfile,
     Workout,
     WorkoutExercise,
@@ -17,6 +19,7 @@
     WorkoutTemplate,
   } from '../../lib/db/types';
   import Card from '../Card.svelte';
+  import TimeInput from '../TimeInput.svelte';
 
   interface Item {
     we: WorkoutExercise;
@@ -38,6 +41,19 @@
   const du = $derived(profile?.display_distance_unit ?? 'km');
   const doneCount = $derived(items.flatMap((i) => i.sets).filter((s) => s.completed).length);
   const totalCount = $derived(items.flatMap((i) => i.sets).length);
+  const mainBodyParts = $derived(
+    topBodyParts(items.map((i) => ({ exercise: i.exercise, weight: i.sets.length })))
+  );
+
+  /** Fields a set needs before it counts as "entered" for its measurement type. */
+  const REQUIRED_FIELDS: Record<MeasurementType, (keyof WorkoutSet)[]> = {
+    reps: ['reps'],
+    weight_reps: ['weight_kg', 'reps'],
+    distance: ['distance_km'],
+    time: ['time_seconds'],
+    distance_time: ['distance_km', 'time_seconds'],
+    weight_time: ['weight_kg', 'time_seconds'],
+  };
 
   onMount(async () => {
     profile = (await all<UserProfile>('user_profile'))[0];
@@ -96,6 +112,16 @@
     const idx = item.sets.findIndex((s) => s.id === set.id);
     if (idx < 0) return;
     Object.assign(item.sets[idx], patch);
+
+    // Entering data checks the set off automatically (once every field the
+    // measurement type needs is filled). Only the checkbox unchecks it.
+    if (!('completed' in patch)) {
+      const mt = item.exercise?.measurement_type ?? 'weight_reps';
+      if (REQUIRED_FIELDS[mt].every((f) => item.sets[idx][f] != null)) {
+        item.sets[idx].completed = true;
+      }
+    }
+
     const saved = await put('workout_sets', $state.snapshot(item.sets[idx]) as WorkoutSet);
     item.sets[idx].updated_at = saved.updated_at;
   }
@@ -237,6 +263,13 @@
     <div>
       <h2>{workout.name}</h2>
       <p class="muted">{doneCount}/{totalCount} sets done</p>
+      {#if mainBodyParts.length > 0}
+        <div class="bp-chips">
+          {#each mainBodyParts as part}
+            <span class="bp-chip">{part.replace('_', ' ')}</span>
+          {/each}
+        </div>
+      {/if}
     </div>
     <div class="header-actions">
       <button class="btn btn-danger" onclick={abandon} disabled={busy}>Abandon</button>
@@ -263,7 +296,7 @@
             <span>Set</span>
             {#if mt === 'weight_reps' || mt === 'weight_time'}<span>Weight ({wu})</span>{/if}
             {#if mt === 'reps' || mt === 'weight_reps'}<span>Reps</span>{/if}
-            {#if mt === 'time' || mt === 'distance_time' || mt === 'weight_time'}<span>Time (sec)</span>{/if}
+            {#if mt === 'time' || mt === 'distance_time' || mt === 'weight_time'}<span>Time</span>{/if}
             {#if mt === 'distance' || mt === 'distance_time'}<span>Distance ({du})</span>{/if}
             <span>Done</span>
             <span></span>
@@ -297,13 +330,10 @@
                 />
               {/if}
               {#if mt === 'time' || mt === 'distance_time' || mt === 'weight_time'}
-                <input
-                  type="number"
-                  min="0"
-                  inputmode="numeric"
-                  value={s.time_seconds ?? ''}
-                  onchange={(e) => saveSet(item, s, { time_seconds: num(e) })}
-                  aria-label={`Set ${s.position + 1} time in seconds`}
+                <TimeInput
+                  seconds={s.time_seconds}
+                  onchange={(v) => saveSet(item, s, { time_seconds: v })}
+                  ariaLabel={`Set ${s.position + 1} time`}
                 />
               {/if}
               {#if mt === 'distance' || mt === 'distance_time'}
@@ -385,6 +415,22 @@
     font-size: var(--font-size-sm);
     font-weight: 700;
     vertical-align: middle;
+  }
+
+  .bp-chips {
+    display: flex;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+    margin-top: var(--space-1);
+  }
+
+  .bp-chip {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
   }
 
   .sets {

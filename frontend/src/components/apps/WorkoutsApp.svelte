@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { all, byIndex, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
+  import { all, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
   import { startAdhocWorkout } from '../../lib/services/workouts';
-  import { formatWeight, formatDistance, formatDuration, displayToKg, kgToDisplay } from '../../lib/utils/units';
+  import { formatWeight, formatDistance, formatDuration, displayToKg, kgToDisplay, displayToKm, kmToDisplay } from '../../lib/utils/units';
   import { formatTimestamp } from '../../lib/utils/dates';
+  import { topBodyParts } from '../../lib/utils/bodyparts';
   import type {
     Exercise,
     UserProfile,
@@ -15,6 +16,7 @@
   } from '../../lib/db/types';
   import Card from '../Card.svelte';
   import Accordion from '../Accordion.svelte';
+  import TimeInput from '../TimeInput.svelte';
 
   let loading = $state(true);
   let templates: WorkoutTemplate[] = $state([]);
@@ -29,12 +31,12 @@
   interface FormRow {
     existingId: string | null;
     exercise_id: string;
-    set_count: number;
-    superset_group: number | '';
+    set_count: number | '';
+    superset_group: number | null;
     target_reps: number | '';
     target_weight: number | ''; // display units
-    target_time_seconds: number | '';
-    target_distance_km: number | '';
+    target_time_seconds: number | null;
+    target_distance: number | ''; // display units
   }
 
   let showForm = $state(false);
@@ -42,9 +44,19 @@
   let fName = $state('');
   let fDescription = $state('');
   let fRows: FormRow[] = $state([]);
+  /** Superset groups that exist but have no rows yet (just created, waiting for drags). */
+  let pendingGroups: number[] = $state([]);
+  let draggingRow: number | null = $state(null);
+  let dragOverGroup: number | null | 'ungrouped' = $state(null);
 
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
+  const du = $derived(profile?.display_distance_unit ?? 'km');
   const exerciseById = $derived(new Map(exercises.map((e) => [e.id, e])));
+  const formGroups = $derived(
+    [...new Set([...fRows.map((r) => r.superset_group).filter((g): g is number => g != null), ...pendingGroups])].sort(
+      (a, b) => a - b
+    )
+  );
 
   onMount(refresh);
 
@@ -75,16 +87,25 @@
       .sort((a, b) => a.position - b.position);
   }
 
+  function templateBodyParts(templateId: string) {
+    return topBodyParts(
+      rowsFor(templateId).map((te) => ({
+        exercise: exerciseById.get(te.exercise_id),
+        weight: te.set_count,
+      }))
+    );
+  }
+
   function emptyRow(): FormRow {
     return {
       existingId: null,
       exercise_id: exercises[0]?.id ?? '',
       set_count: 3,
-      superset_group: '',
+      superset_group: null,
       target_reps: '',
       target_weight: '',
-      target_time_seconds: '',
-      target_distance_km: '',
+      target_time_seconds: null,
+      target_distance: '',
     };
   }
 
@@ -93,6 +114,7 @@
     fName = '';
     fDescription = '';
     fRows = [emptyRow()];
+    pendingGroups = [];
     showForm = true;
   }
 
@@ -104,13 +126,34 @@
       existingId: te.id,
       exercise_id: te.exercise_id,
       set_count: te.set_count,
-      superset_group: te.superset_group ?? '',
+      superset_group: te.superset_group,
       target_reps: te.target_reps ?? '',
       target_weight: te.target_weight_kg == null ? '' : Math.round(kgToDisplay(te.target_weight_kg, wu) * 10) / 10,
-      target_time_seconds: te.target_time_seconds ?? '',
-      target_distance_km: te.target_distance_km ?? '',
+      target_time_seconds: te.target_time_seconds,
+      target_distance: te.target_distance_km == null ? '' : Math.round(kmToDisplay(te.target_distance_km, du) * 100) / 100,
     }));
+    pendingGroups = [];
     showForm = true;
+  }
+
+  function addSupersetGroup() {
+    const used = formGroups;
+    pendingGroups = [...pendingGroups, (used[used.length - 1] ?? 0) + 1];
+  }
+
+  function dropOnGroup(group: number | null) {
+    if (draggingRow == null) return;
+    fRows[draggingRow].superset_group = group;
+    if (group != null) pendingGroups = pendingGroups.filter((g) => g !== group);
+    draggingRow = null;
+    dragOverGroup = null;
+  }
+
+  function removeGroup(group: number) {
+    for (const row of fRows) {
+      if (row.superset_group === group) row.superset_group = null;
+    }
+    pendingGroups = pendingGroups.filter((g) => g !== group);
   }
 
   async function save(e: SubmitEvent) {
@@ -126,28 +169,43 @@
       template = await put('workout_templates', withSyncFields(fields));
     }
 
-    // Replace the template's exercise rows: upsert current, tombstone removed.
-    const keptIds = new Set(fRows.map((r) => r.existingId).filter(Boolean));
+    // Singleton "supersets" aren't supersets — clear them on save.
+    const groupSizes = new Map<number, number>();
+    for (const r of fRows) {
+      if (r.superset_group != null) groupSizes.set(r.superset_group, (groupSizes.get(r.superset_group) ?? 0) + 1);
+    }
+
+    // Persist in visual order: ungrouped rows first, then each group.
+    const ordered = [
+      ...fRows.filter((r) => r.superset_group == null),
+      ...formGroups.flatMap((g) => fRows.filter((r) => r.superset_group === g)),
+    ];
+
+    const keptIds = new Set(ordered.map((r) => r.existingId).filter(Boolean));
     const removed = rowsFor(template.id).filter((te) => !keptIds.has(te.id));
     await softDeleteMany('workout_template_exercises', removed.map((te) => te.id));
 
-    for (const [position, row] of fRows.entries()) {
-      const fieldsRow = {
+    for (const [position, row] of ordered.entries()) {
+      const group =
+        row.superset_group != null && (groupSizes.get(row.superset_group) ?? 0) > 1
+          ? row.superset_group
+          : null;
+      const rowFields = {
         workout_template_id: template.id,
         exercise_id: row.exercise_id,
         position,
         set_count: Number(row.set_count) || 1,
-        superset_group: row.superset_group === '' ? null : Number(row.superset_group),
+        superset_group: group,
         target_reps: row.target_reps === '' ? null : Number(row.target_reps),
         target_weight_kg: row.target_weight === '' ? null : displayToKg(Number(row.target_weight), wu),
-        target_time_seconds: row.target_time_seconds === '' ? null : Number(row.target_time_seconds),
-        target_distance_km: row.target_distance_km === '' ? null : Number(row.target_distance_km),
+        target_time_seconds: row.target_time_seconds,
+        target_distance_km: row.target_distance === '' ? null : displayToKm(Number(row.target_distance), du),
       };
       if (row.existingId) {
         const existing = templateExercises.find((te) => te.id === row.existingId)!;
-        await put('workout_template_exercises', { ...$state.snapshot(existing), ...fieldsRow } as WorkoutTemplateExercise);
+        await put('workout_template_exercises', { ...$state.snapshot(existing), ...rowFields } as WorkoutTemplateExercise);
       } else {
-        await put('workout_template_exercises', withSyncFields(fieldsRow));
+        await put('workout_template_exercises', withSyncFields(rowFields));
       }
     }
 
@@ -179,19 +237,17 @@
     if (te.target_reps != null) parts.push(`${te.target_reps} reps`);
     if (te.target_weight_kg != null) parts.push(formatWeight(te.target_weight_kg, wu));
     if (te.target_time_seconds != null) parts.push(formatDuration(te.target_time_seconds));
-    if (te.target_distance_km != null)
-      parts.push(formatDistance(te.target_distance_km, profile?.display_distance_unit ?? 'km'));
+    if (te.target_distance_km != null) parts.push(formatDistance(te.target_distance_km, du));
     return parts.join(' ');
   }
 
-  function describeSet(s: WorkoutSet, ex: Exercise | undefined): string {
+  function describeSet(s: WorkoutSet): string {
     const parts: string[] = [];
     if (s.weight_kg != null) parts.push(formatWeight(s.weight_kg, wu));
     if (s.reps != null) parts.push(`× ${s.reps}`);
     if (s.time_seconds != null) parts.push(formatDuration(s.time_seconds));
-    if (s.distance_km != null)
-      parts.push(formatDistance(s.distance_km, profile?.display_distance_unit ?? 'km'));
-    return parts.join(' ') || (ex ? '—' : '—');
+    if (s.distance_km != null) parts.push(formatDistance(s.distance_km, du));
+    return parts.join(' ') || '—';
   }
 
   function setsOfHistoryExercise(weId: string): WorkoutSet[] {
@@ -205,7 +261,67 @@
       .filter((we) => we.workout_id === workoutId)
       .sort((a, b) => a.position - b.position);
   }
+
+  function historyBodyParts(workoutId: string) {
+    return topBodyParts(
+      exercisesOfWorkout(workoutId).map((we) => ({
+        exercise: exerciseById.get(we.exercise_id),
+        weight: setsOfHistoryExercise(we.id).length || 1,
+      }))
+    );
+  }
 </script>
+
+{#snippet bodyPartChips(parts: string[])}
+  {#if parts.length > 0}
+    <div class="bp-chips">
+      {#each parts as part}
+        <span class="bp-chip">{part.replace('_', ' ')}</span>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet formRow(row: FormRow, i: number)}
+  {@const mt = measurementOf(row.exercise_id)}
+  <div class="row-edit" class:dragging={draggingRow === i}>
+    <span
+      class="drag-handle"
+      role="button"
+      tabindex="-1"
+      draggable="true"
+      title="Drag into a superset group"
+      aria-label="Drag to move into a superset group"
+      ondragstart={() => (draggingRow = i)}
+      ondragend={() => {
+        draggingRow = null;
+        dragOverGroup = null;
+      }}>⠿</span>
+    <select bind:value={row.exercise_id} aria-label="Exercise">
+      {#each exercises as ex}
+        <option value={ex.id}>{ex.name}</option>
+      {/each}
+    </select>
+    <input type="number" min="1" max="20" bind:value={row.set_count} placeholder="sets" title="Number of sets" aria-label="Sets" />
+    {#if mt === 'reps' || mt === 'weight_reps'}
+      <input type="number" min="0" bind:value={row.target_reps} placeholder="reps" title="Target reps" aria-label="Target reps" />
+    {/if}
+    {#if mt === 'weight_reps' || mt === 'weight_time'}
+      <input type="number" min="0" step="0.5" bind:value={row.target_weight} placeholder={wu} title={`Target weight (${wu})`} aria-label="Target weight" />
+    {/if}
+    {#if mt === 'time' || mt === 'distance_time' || mt === 'weight_time'}
+      <TimeInput
+        seconds={row.target_time_seconds}
+        onchange={(v) => (row.target_time_seconds = v)}
+        ariaLabel="Target time"
+      />
+    {/if}
+    {#if mt === 'distance' || mt === 'distance_time'}
+      <input type="number" min="0" step="0.1" bind:value={row.target_distance} placeholder={du} title={`Target distance (${du})`} aria-label="Target distance" />
+    {/if}
+    <button type="button" class="btn btn-danger" onclick={() => (fRows = fRows.filter((_, j) => j !== i))} aria-label="Remove exercise row">✕</button>
+  </div>
+{/snippet}
 
 <div class="page-header">
   <h1>Workouts</h1>
@@ -236,35 +352,76 @@
         </div>
 
         <div class="stack" style="gap: var(--space-2);">
-          <span class="field-label">Exercises (superset: give rows the same group number)</span>
-          {#each fRows as row, i (i)}
-            {@const mt = measurementOf(row.exercise_id)}
-            <div class="row-edit">
-              <select bind:value={row.exercise_id} aria-label="Exercise">
-                {#each exercises as ex}
-                  <option value={ex.id}>{ex.name}</option>
-                {/each}
-              </select>
-              <input type="number" min="1" max="20" bind:value={row.set_count} aria-label="Sets" title="Sets" />
-              <input type="number" min="1" bind:value={row.superset_group} placeholder="SS" title="Superset group" aria-label="Superset group" />
-              {#if mt === 'reps' || mt === 'weight_reps'}
-                <input type="number" min="0" bind:value={row.target_reps} placeholder="reps" aria-label="Target reps" />
+          <span class="field-label">Exercises — drag the ⠿ handle into a superset group to pair them</span>
+
+          <div
+            class="ungrouped"
+            class:drag-over={dragOverGroup === 'ungrouped' && draggingRow != null && fRows[draggingRow]?.superset_group != null}
+            role="list"
+            ondragover={(e) => {
+              if (draggingRow != null) {
+                e.preventDefault();
+                dragOverGroup = 'ungrouped';
+              }
+            }}
+            ondragleave={() => (dragOverGroup = null)}
+            ondrop={(e) => {
+              e.preventDefault();
+              dropOnGroup(null);
+            }}
+          >
+            {#each fRows as row, i (i)}
+              {#if row.superset_group == null}
+                {@render formRow(row, i)}
               {/if}
-              {#if mt === 'weight_reps' || mt === 'weight_time'}
-                <input type="number" min="0" step="0.5" bind:value={row.target_weight} placeholder={wu} aria-label="Target weight" />
+            {/each}
+            {#if fRows.every((r) => r.superset_group != null)}
+              <p class="drop-hint">Drag exercises here to take them out of a superset</p>
+            {/if}
+          </div>
+
+          {#each formGroups as g (g)}
+            <div
+              class="ss-box"
+              class:drag-over={dragOverGroup === g}
+              role="list"
+              ondragover={(e) => {
+                if (draggingRow != null) {
+                  e.preventDefault();
+                  dragOverGroup = g;
+                }
+              }}
+              ondragleave={() => (dragOverGroup = null)}
+              ondrop={(e) => {
+                e.preventDefault();
+                dropOnGroup(g);
+              }}
+            >
+              <div class="ss-head">
+                <span>Superset {g}</span>
+                <button type="button" class="ss-remove" onclick={() => removeGroup(g)} aria-label={`Dissolve superset ${g}`}>
+                  Dissolve
+                </button>
+              </div>
+              {#each fRows as row, i (i)}
+                {#if row.superset_group === g}
+                  {@render formRow(row, i)}
+                {/if}
+              {/each}
+              {#if !fRows.some((r) => r.superset_group === g)}
+                <p class="drop-hint">Drag exercises here — they'll be performed back-to-back</p>
               {/if}
-              {#if mt === 'time' || mt === 'distance_time' || mt === 'weight_time'}
-                <input type="number" min="0" bind:value={row.target_time_seconds} placeholder="sec" aria-label="Target seconds" />
-              {/if}
-              {#if mt === 'distance' || mt === 'distance_time'}
-                <input type="number" min="0" step="0.1" bind:value={row.target_distance_km} placeholder="km" aria-label="Target distance (km)" />
-              {/if}
-              <button type="button" class="btn btn-danger" onclick={() => (fRows = fRows.filter((_, j) => j !== i))} aria-label="Remove exercise row">✕</button>
             </div>
           {/each}
-          <button type="button" class="btn" onclick={() => (fRows = [...fRows, emptyRow()])}>
-            + Add exercise
-          </button>
+
+          <div class="form-list-actions">
+            <button type="button" class="btn" onclick={() => (fRows = [...fRows, emptyRow()])}>
+              + Add exercise
+            </button>
+            <button type="button" class="btn" onclick={addSupersetGroup}>
+              + New superset group
+            </button>
+          </div>
         </div>
 
         <div class="form-actions">
@@ -284,8 +441,9 @@
     <div class="stack" style="margin-bottom: var(--space-5);">
       {#each templates as t (t.id)}
         <Accordion summary={t.name}>
+          {@render bodyPartChips(templateBodyParts(t.id))}
           {#if t.description}
-            <p class="muted" style="margin-bottom: var(--space-2);">{t.description}</p>
+            <p class="muted" style="margin: var(--space-2) 0;">{t.description}</p>
           {/if}
           <ul class="exercise-list">
             {#each rowsFor(t.id) as te}
@@ -293,7 +451,7 @@
                 <strong>{exerciseById.get(te.exercise_id)?.name ?? 'Unknown exercise'}</strong>
                 — {describeTarget(te)}
                 {#if te.superset_group != null}
-                  <span class="ss-badge">SS{te.superset_group}</span>
+                  <span class="ss-badge">Superset {te.superset_group}</span>
                 {/if}
               </li>
             {/each}
@@ -315,17 +473,19 @@
     <div class="stack">
       {#each history as w (w.id)}
         <Accordion summary={`${w.name} — ${formatTimestamp(w.completed_at!)}`}>
-          {#each exercisesOfWorkout(w.id) as we}
-            {@const ex = exerciseById.get(we.exercise_id)}
-            <div style="margin-bottom: var(--space-2);">
-              <strong>{ex?.name ?? 'Unknown exercise'}</strong>
-              <ul class="exercise-list">
-                {#each setsOfHistoryExercise(we.id) as s}
-                  <li>Set {s.position + 1}: {describeSet(s, ex)}</li>
-                {/each}
-              </ul>
-            </div>
-          {/each}
+          {@render bodyPartChips(historyBodyParts(w.id))}
+          <div style="margin-top: var(--space-2);">
+            {#each exercisesOfWorkout(w.id) as we}
+              <div style="margin-bottom: var(--space-2);">
+                <strong>{exerciseById.get(we.exercise_id)?.name ?? 'Unknown exercise'}</strong>
+                <ul class="exercise-list">
+                  {#each setsOfHistoryExercise(we.id) as s}
+                    <li>Set {s.position + 1}: {describeSet(s)}</li>
+                  {/each}
+                </ul>
+              </div>
+            {/each}
+          </div>
         </Accordion>
       {/each}
     </div>
@@ -344,6 +504,23 @@
     align-items: center;
   }
 
+  .row-edit.dragging {
+    opacity: 0.4;
+  }
+
+  .drag-handle {
+    cursor: grab;
+    color: var(--text-muted-color);
+    font-size: var(--font-size-lg);
+    padding: 0 var(--space-1);
+    user-select: none;
+    touch-action: none;
+  }
+
+  .drag-handle:active {
+    cursor: grabbing;
+  }
+
   .row-edit select {
     flex: 2 1 8rem;
     min-width: 7rem;
@@ -352,6 +529,62 @@
   .row-edit input {
     flex: 1 1 3.5rem;
     min-width: 3.5rem;
+  }
+
+  .ungrouped {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    border-radius: var(--radius-md);
+    padding: var(--space-1);
+  }
+
+  .ss-box {
+    border: 2px dashed var(--color-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    background: color-mix(in srgb, var(--color-primary-soft) 40%, transparent);
+  }
+
+  .drag-over {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    background: var(--color-primary-soft);
+  }
+
+  .ss-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 700;
+    color: var(--color-primary-strong);
+    font-size: var(--font-size-sm);
+  }
+
+  .ss-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    text-decoration: underline;
+  }
+
+  .drop-hint {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+    text-align: center;
+    padding: var(--space-2);
+    margin: 0;
+  }
+
+  .form-list-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
   }
 
   .exercise-list {
@@ -366,6 +599,21 @@
     padding: 0 var(--space-2);
     font-size: var(--font-size-sm);
     font-weight: 700;
+  }
+
+  .bp-chips {
+    display: flex;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+  }
+
+  .bp-chip {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
   }
 
   .form-actions {

@@ -2,14 +2,8 @@
   import { onMount } from 'svelte';
   import { all, put, withSyncFields } from '../../lib/db/repo';
   import { computeRecords, type ExerciseRecords, type RecordEntry } from '../../lib/services/records';
-  import {
-    formatWeight,
-    formatDistance,
-    formatDuration,
-    kgToDisplay,
-    displayToKg,
-    kmToDisplay,
-  } from '../../lib/utils/units';
+  import { formatWeight, kgToDisplay, displayToKg } from '../../lib/utils/units';
+  import { formatRecordValue } from '../../lib/utils/records-format';
   import { formatDate, parseLocalDate, todayLocal } from '../../lib/utils/dates';
   import type { BodyWeightEntry, UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
@@ -36,31 +30,8 @@
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
   const du = $derived(profile?.display_distance_unit ?? 'km');
 
-  function formatValue(label: string, entry: RecordEntry): string {
-    switch (label) {
-      case 'Max weight': {
-        const base = formatWeight(entry.value, wu);
-        return entry.secondary != null ? `${base} × ${Math.round(entry.secondary)}` : base;
-      }
-      case 'Max volume (single set)':
-        return `${Math.round(kgToDisplay(entry.value, wu) * 10) / 10} ${wu}·reps`;
-      case 'Max reps':
-        return `${Math.round(entry.value)} reps`;
-      case 'Longest time':
-        return formatDuration(entry.value);
-      case 'Longest distance':
-        return formatDistance(entry.value, du);
-      case 'Best pace': {
-        // value is seconds per km; convert to seconds per display unit
-        const secPerUnit = du === 'km' ? entry.value : entry.value * 1.609344;
-        const m = Math.floor(secPerUnit / 60);
-        const s = Math.round(secPerUnit % 60);
-        return `${m}:${String(s).padStart(2, '0')} /${du}`;
-      }
-      default:
-        return String(Math.round(entry.value * 10) / 10);
-    }
-  }
+  const formatValue = (label: string, entry: RecordEntry) =>
+    formatRecordValue(label, entry, wu, du);
 
   const weightChartData = $derived(
     weightEntries.map((e) => ({

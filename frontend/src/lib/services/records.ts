@@ -140,3 +140,20 @@ export async function computeRecords(range?: { from: string; to: string }): Prom
 
   return results.sort((a, b) => a.exercise.name.localeCompare(b.exercise.name));
 }
+
+export interface RecentPR {
+  exercise: Exercise;
+  label: string;
+  entry: RecordEntry;
+}
+
+/** The most recently achieved PRs across all exercises and metrics. */
+export async function recentPRs(limit = 5): Promise<RecentPR[]> {
+  const records = await computeRecords();
+  const flat: RecentPR[] = records.flatMap((r) =>
+    Object.entries(r.metrics).flatMap(([label, progression]) =>
+      progression.map((entry) => ({ exercise: r.exercise, label, entry }))
+    )
+  );
+  return flat.sort((a, b) => b.entry.date.localeCompare(a.entry.date)).slice(0, limit);
+}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { all } from '../../lib/db/repo';
+  import { all, byIndex, put } from '../../lib/db/repo';
   import {
     getNextWorkout,
     getActiveProgram,
@@ -8,32 +8,81 @@
     startWorkout,
     startAdhocWorkout,
   } from '../../lib/services/workouts';
-  import { formatDate, todayLocal, daysBetween } from '../../lib/utils/dates';
-  import type { Program, UserProfile, Workout, WorkoutTemplate } from '../../lib/db/types';
+  import { recentPRs, type RecentPR } from '../../lib/services/records';
+  import { formatRecordValue } from '../../lib/utils/records-format';
+  import { topBodyParts } from '../../lib/utils/bodyparts';
+  import { formatDate, todayLocal, daysBetween, addDays, dayOfWeek, WEEKDAYS_SHORT } from '../../lib/utils/dates';
+  import type {
+    Exercise,
+    Program,
+    UserProfile,
+    Workout,
+    WorkoutTemplate,
+    WorkoutTemplateExercise,
+  } from '../../lib/db/types';
   import Card from '../Card.svelte';
 
   let loading = $state(true);
+  let profile: UserProfile | undefined = $state();
   let nextWorkout: Workout | undefined = $state();
+  let nextBodyParts: string[] = $state([]);
   let program: Program | undefined = $state();
   let progress = $state({ completed: 0, total: 0 });
   let templates: WorkoutTemplate[] = $state([]);
   let adhocTemplateId = $state('');
+  let prs: RecentPR[] = $state([]);
+  let weekWorkouts: Workout[] = $state([]);
+  let draggingWorkout: Workout | null = $state(null);
+  let dragOverDay: string | null = $state(null);
   let busy = $state(false);
 
+  const today = todayLocal();
+  const weekStart = addDays(today, -dayOfWeek(today));
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  const wu = $derived(profile?.display_weight_unit ?? 'kg');
+  const du = $derived(profile?.display_distance_unit ?? 'km');
+
   onMount(async () => {
-    const profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await all<UserProfile>('user_profile'))[0];
     if (!profile?.onboarding_completed_at) {
       location.href = '/onboarding/';
       return;
     }
+    await refresh();
+    loading = false;
+  });
+
+  async function refresh() {
     nextWorkout = await getNextWorkout();
     program = await getActiveProgram();
     if (program) progress = await programProgress(program);
     templates = (await all<WorkoutTemplate>('workout_templates')).sort((a, b) =>
       a.name.localeCompare(b.name)
     );
-    loading = false;
-  });
+    prs = await recentPRs(5);
+
+    const allWorkouts = await all<Workout>('workouts');
+    weekWorkouts = allWorkouts.filter(
+      (w) => w.scheduled_on && w.scheduled_on >= weekDates[0] && w.scheduled_on <= weekDates[6]
+    );
+
+    nextBodyParts = [];
+    if (nextWorkout?.workout_template_id) {
+      const [tes, exercises] = await Promise.all([
+        byIndex<WorkoutTemplateExercise>(
+          'workout_template_exercises',
+          'workout_template_id',
+          nextWorkout.workout_template_id
+        ),
+        all<Exercise>('exercises'),
+      ]);
+      const exById = new Map(exercises.map((e) => [e.id, e]));
+      nextBodyParts = topBodyParts(
+        tes.map((te) => ({ exercise: exById.get(te.exercise_id), weight: te.set_count }))
+      );
+    }
+  }
 
   async function startNext() {
     if (!nextWorkout || busy) return;
@@ -52,76 +101,179 @@
 
   function scheduleLabel(w: Workout): string {
     if (!w.scheduled_on) return 'Unscheduled';
-    const days = daysBetween(todayLocal(), w.scheduled_on);
+    const days = daysBetween(today, w.scheduled_on);
     if (days === 0) return 'Today';
     if (days === 1) return 'Tomorrow';
     if (days < 0) return `${formatDate(w.scheduled_on)} — overdue`;
     return formatDate(w.scheduled_on);
+  }
+
+  function workoutsOn(date: string): Workout[] {
+    return weekWorkouts
+      .filter((w) => w.scheduled_on === date)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  const canDrag = (w: Workout, date: string) => w.state === 'scheduled' && date >= today;
+  const canDrop = (date: string) => draggingWorkout != null && date >= today;
+
+  /** Reschedule via drag: counts as a bump (original date is preserved). */
+  async function dropOnDay(date: string) {
+    const w = draggingWorkout;
+    draggingWorkout = null;
+    dragOverDay = null;
+    if (!w || date < today || w.scheduled_on === date) return;
+    await put('workouts', {
+      ...($state.snapshot(w) as Workout),
+      scheduled_on: date,
+      original_scheduled_on: w.original_scheduled_on ?? w.scheduled_on,
+    });
+    await refresh();
   }
 </script>
 
 {#if loading}
   <p class="muted">Loading…</p>
 {:else}
-  <div class="grid-2">
-    <Card title="Next workout">
-      {#if nextWorkout}
-        <h3>{nextWorkout.name}</h3>
-        <p class="muted">
-          {#if nextWorkout.state === 'in_progress'}
-            In progress — pick up where you left off.
-          {:else}
-            {scheduleLabel(nextWorkout)}
-          {/if}
-          {#if nextWorkout.original_scheduled_on}
-            <span class="badge">bumped</span>
-          {/if}
-        </p>
-        <button class="btn btn-primary" style="margin-top: var(--space-3);" onclick={startNext} disabled={busy}>
-          {nextWorkout.state === 'in_progress' ? 'Resume workout' : 'Start workout'}
-        </button>
-      {:else}
-        <p class="muted">No workout scheduled.</p>
-        {#if templates.length > 0}
-          <div style="margin-top: var(--space-3);">
-            <label for="home-adhoc">Start one anyway</label>
-            <div class="adhoc">
-              <select id="home-adhoc" bind:value={adhocTemplateId}>
-                <option value="" disabled>Choose a template…</option>
-                {#each templates as t}
-                  <option value={t.id}>{t.name}</option>
-                {/each}
-              </select>
-              <button class="btn btn-primary" onclick={startAdhoc} disabled={!adhocTemplateId || busy}>
-                Start
-              </button>
+  <div class="stack">
+    <div class="grid-2">
+      <Card title="Next workout">
+        {#if nextWorkout}
+          <h3>{nextWorkout.name}</h3>
+          {#if nextBodyParts.length > 0}
+            <div class="bp-chips">
+              {#each nextBodyParts as part}
+                <span class="bp-chip">{part.replace('_', ' ')}</span>
+              {/each}
             </div>
+          {/if}
+          <p class="muted">
+            {#if nextWorkout.state === 'in_progress'}
+              In progress — pick up where you left off.
+            {:else}
+              {scheduleLabel(nextWorkout)}
+            {/if}
+            {#if nextWorkout.original_scheduled_on}
+              <span class="badge">bumped</span>
+            {/if}
+          </p>
+          <button class="btn btn-primary" style="margin-top: var(--space-3);" onclick={startNext} disabled={busy}>
+            {nextWorkout.state === 'in_progress' ? 'Resume workout' : 'Start workout'}
+          </button>
+        {:else}
+          <p class="muted">No workout scheduled.</p>
+          {#if templates.length > 0}
+            <div style="margin-top: var(--space-3);">
+              <label for="home-adhoc">Start one anyway</label>
+              <div class="adhoc">
+                <select id="home-adhoc" bind:value={adhocTemplateId}>
+                  <option value="" disabled>Choose a template…</option>
+                  {#each templates as t}
+                    <option value={t.id}>{t.name}</option>
+                  {/each}
+                </select>
+                <button class="btn btn-primary" onclick={startAdhoc} disabled={!adhocTemplateId || busy}>
+                  Start
+                </button>
+              </div>
+            </div>
+          {:else}
+            <p class="muted" style="margin-top: var(--space-2);">
+              <a href="/workouts/">Create a workout template</a> to get going.
+            </p>
+          {/if}
+        {/if}
+      </Card>
+
+      <Card title="Current program">
+        {#if program}
+          <h3>{program.name}</h3>
+          <p class="muted">
+            {progress.completed} of {progress.total} workouts done · ends {formatDate(program.ends_on)}
+          </p>
+          <div class="progress" role="progressbar" aria-valuenow={progress.completed} aria-valuemax={progress.total}>
+            <div
+              class="progress-fill"
+              style={`width: ${progress.total ? (100 * progress.completed) / progress.total : 0}%`}
+            ></div>
           </div>
         {:else}
-          <p class="muted" style="margin-top: var(--space-2);">
-            <a href="/workouts/">Create a workout template</a> to get going.
-          </p>
+          <p class="muted">No active program.</p>
+          <a class="btn" href="/programs/" style="margin-top: var(--space-3);">Set up a program</a>
         {/if}
-      {/if}
-    </Card>
+      </Card>
+    </div>
 
-    <Card title="Current program">
-      {#if program}
-        <h3>{program.name}</h3>
-        <p class="muted">
-          {progress.completed} of {progress.total} workouts done · ends {formatDate(program.ends_on)}
-        </p>
-        <div class="progress" role="progressbar" aria-valuenow={progress.completed} aria-valuemax={progress.total}>
-          <div
-            class="progress-fill"
-            style={`width: ${progress.total ? (100 * progress.completed) / progress.total : 0}%`}
-          ></div>
+    {#if weekWorkouts.length > 0}
+      <Card title="This week">
+        <p class="muted week-hint">Drag a workout to another day to reschedule it.</p>
+        <div class="week">
+          {#each weekDates as date (date)}
+            {@const past = date < today}
+            <div
+              class="day"
+              class:past
+              class:is-today={date === today}
+              class:drop-target={canDrop(date) && dragOverDay === date}
+              role="listitem"
+              aria-label={`${WEEKDAYS_SHORT[dayOfWeek(date)]} ${date}${past ? ' (past)' : ''}`}
+              ondragover={(e) => {
+                if (canDrop(date)) {
+                  e.preventDefault();
+                  dragOverDay = date;
+                }
+              }}
+              ondragleave={() => (dragOverDay = null)}
+              ondrop={(e) => {
+                e.preventDefault();
+                dropOnDay(date);
+              }}
+            >
+              <span class="day-label">
+                {WEEKDAYS_SHORT[dayOfWeek(date)]}
+                <span class="day-num">{Number(date.slice(8))}</span>
+              </span>
+              {#each workoutsOn(date) as w (w.id)}
+                <div
+                  class="week-chip"
+                  class:done={w.state === 'completed'}
+                  class:draggable-chip={canDrag(w, date)}
+                  draggable={canDrag(w, date)}
+                  role="listitem"
+                  title={canDrag(w, date) ? 'Drag to reschedule' : w.state}
+                  ondragstart={() => (draggingWorkout = w)}
+                  ondragend={() => {
+                    draggingWorkout = null;
+                    dragOverDay = null;
+                  }}
+                >
+                  {w.name}
+                  {#if w.state === 'completed'}✓{/if}
+                  {#if w.state === 'in_progress'}⏱{/if}
+                  {#if w.state === 'skipped'}—{/if}
+                </div>
+              {/each}
+            </div>
+          {/each}
         </div>
-      {:else}
-        <p class="muted">No active program.</p>
-        <a class="btn" href="/programs/" style="margin-top: var(--space-3);">Set up a program</a>
-      {/if}
-    </Card>
+      </Card>
+    {/if}
+
+    {#if prs.length > 0}
+      <Card title="Recent PRs">
+        <ul class="pr-list">
+          {#each prs as pr}
+            <li>
+              <span class="pr-exercise">{pr.exercise.name}</span>
+              <span class="pr-metric muted">{pr.label}</span>
+              <span class="pr-value">{formatRecordValue(pr.label, pr.entry, wu, du)}</span>
+              <span class="pr-date muted">{formatDate(pr.entry.date)}</span>
+            </li>
+          {/each}
+        </ul>
+        <a class="btn" href="/records/" style="margin-top: var(--space-3);">All records</a>
+      </Card>
+    {/if}
   </div>
 {/if}
 
@@ -135,6 +287,22 @@
     font-size: var(--font-size-sm);
     font-weight: 700;
     margin-left: var(--space-1);
+  }
+
+  .bp-chips {
+    display: flex;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+    margin: var(--space-1) 0 var(--space-2);
+  }
+
+  .bp-chip {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
   }
 
   .progress {
@@ -154,5 +322,133 @@
   .adhoc {
     display: flex;
     gap: var(--space-2);
+  }
+
+  .week-hint {
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-2);
+  }
+
+  .week {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--space-1);
+  }
+
+  .day {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--space-1);
+    min-height: 5.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .day.past {
+    opacity: 0.55;
+    background: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 6px,
+      color-mix(in srgb, var(--border-color) 35%, transparent) 6px,
+      color-mix(in srgb, var(--border-color) 35%, transparent) 7px
+    );
+  }
+
+  .day.is-today {
+    border-color: var(--color-primary);
+    box-shadow: inset 0 0 0 1px var(--color-primary);
+  }
+
+  .day.drop-target {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+  }
+
+  .day-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-weight: 700;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 var(--space-1);
+  }
+
+  .is-today .day-label {
+    color: var(--color-primary-strong);
+  }
+
+  .week-chip {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  .week-chip.done {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+  }
+
+  .draggable-chip {
+    cursor: grab;
+  }
+
+  .draggable-chip:active {
+    cursor: grabbing;
+  }
+
+  .pr-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .pr-list li {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+
+  .pr-exercise {
+    font-weight: 700;
+  }
+
+  .pr-metric,
+  .pr-date {
+    font-size: var(--font-size-sm);
+  }
+
+  .pr-value {
+    font-weight: 800;
+    color: var(--color-primary-strong);
+  }
+
+  @media (max-width: 40rem) {
+    .week {
+      grid-template-columns: repeat(7, minmax(4.5rem, 1fr));
+      overflow-x: auto;
+    }
+
+    .pr-list li {
+      grid-template-columns: 1fr auto;
+    }
+
+    .pr-metric {
+      order: 3;
+    }
+
+    .pr-date {
+      order: 4;
+      justify-self: end;
+    }
   }
 </style>
