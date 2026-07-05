@@ -16,6 +16,7 @@
     ProgramTemplate,
     ProgramTemplateWorkout,
     UserProfile,
+    Workout,
     WorkoutTemplate,
   } from '../../lib/db/types';
   import Card from '../Card.svelte';
@@ -27,6 +28,8 @@
   let workoutTemplates: WorkoutTemplate[] = $state([]);
   let activeProgram: Program | undefined = $state();
   let progress = $state({ completed: 0, total: 0 });
+  let currentDescription = $state('');
+  let currentRotation: string[] = $state([]);
   let pastPrograms: Program[] = $state([]);
   let allRecords: ExerciseRecords[] = $state([]);
   let weightEntries: BodyWeightEntry[] = $state([]);
@@ -58,7 +61,31 @@
     profile = (await all<UserProfile>('user_profile'))[0];
 
     activeProgram = await getActiveProgram();
-    if (activeProgram) progress = await programProgress(activeProgram);
+    currentDescription = '';
+    currentRotation = [];
+    if (activeProgram) {
+      progress = await programProgress(activeProgram);
+      const tpl = programTemplates.find((t) => t.id === activeProgram!.program_template_id);
+      if (tpl) {
+        currentDescription = tpl.description;
+        currentRotation = rotationFor(tpl.id).map(
+          (r) => workoutTemplates.find((wt) => wt.id === r.workout_template_id)?.name ?? 'Unknown template'
+        );
+      } else {
+        // Source template was deleted — reconstruct the rotation from the
+        // program's own scheduled workouts instead.
+        const ws = (await byIndex<Workout>('workouts', 'program_id', activeProgram.id))
+          .filter((w) => w.scheduled_on)
+          .sort((a, b) => a.scheduled_on!.localeCompare(b.scheduled_on!));
+        const seen = new Set<string>();
+        for (const w of ws) {
+          if (!seen.has(w.name)) {
+            seen.add(w.name);
+            currentRotation.push(w.name);
+          }
+        }
+      }
+    }
 
     const programs = await all<Program>('programs');
     pastPrograms = programs
@@ -238,6 +265,20 @@
     {#if activeProgram}
       <Card title="Current program">
         <h3>{activeProgram.name}</h3>
+        {#if currentDescription}
+          <p class="muted" style="margin-bottom: var(--space-2);">{currentDescription}</p>
+        {/if}
+        <p style="margin-bottom: var(--space-2);">
+          {activeProgram.frequency_per_week}×/week for {activeProgram.duration_weeks} weeks on
+          {activeProgram.preferred_days.map((d) => WEEKDAYS_SHORT[d]).join(', ')}
+        </p>
+        {#if currentRotation.length > 0}
+          <ol style="padding-left: var(--space-4); margin-bottom: var(--space-2);">
+            {#each currentRotation as name}
+              <li>{name}</li>
+            {/each}
+          </ol>
+        {/if}
         <p class="muted">
           Started {formatDate(activeProgram.started_on)} · ends {formatDate(activeProgram.ends_on)} ·
           {progress.completed}/{progress.total} workouts completed

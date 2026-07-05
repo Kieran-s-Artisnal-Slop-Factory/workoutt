@@ -292,7 +292,14 @@
       draggable="true"
       title="Drag into a superset group"
       aria-label="Drag to move into a superset group"
-      ondragstart={() => (draggingRow = i)}
+      ondragstart={(e) => {
+        draggingRow = i;
+        // Edge refuses drags with no data (shows 🚫); Chrome/Firefox don't care.
+        if (e.dataTransfer) {
+          e.dataTransfer.setData('text/plain', String(i));
+          e.dataTransfer.effectAllowed = 'move';
+        }
+      }}
       ondragend={() => {
         draggingRow = null;
         dragOverGroup = null;
@@ -361,6 +368,7 @@
             ondragover={(e) => {
               if (draggingRow != null) {
                 e.preventDefault();
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
                 dragOverGroup = 'ungrouped';
               }
             }}
@@ -388,6 +396,7 @@
               ondragover={(e) => {
                 if (draggingRow != null) {
                   e.preventDefault();
+                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
                   dragOverGroup = g;
                 }
               }}

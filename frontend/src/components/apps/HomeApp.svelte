@@ -139,7 +139,7 @@
     <div class="grid-2">
       <Card title="Next workout">
         {#if nextWorkout}
-          <h3>{nextWorkout.name}</h3>
+          <p class="next-name">{nextWorkout.name}</p>
           {#if nextBodyParts.length > 0}
             <div class="bp-chips">
               {#each nextBodyParts as part}
@@ -220,6 +220,8 @@
               ondragover={(e) => {
                 if (canDrop(date)) {
                   e.preventDefault();
+                  // Edge shows a 🚫 cursor unless the drop effect is set explicitly.
+                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
                   dragOverDay = date;
                 }
               }}
@@ -241,7 +243,15 @@
                   draggable={canDrag(w, date)}
                   role="listitem"
                   title={canDrag(w, date) ? 'Drag to reschedule' : w.state}
-                  ondragstart={() => (draggingWorkout = w)}
+                  ondragstart={(e) => {
+                    draggingWorkout = w;
+                    // Edge refuses the drag entirely (🚫) unless real drag data
+                    // is set; Chrome/Firefox tolerate an empty drag.
+                    if (e.dataTransfer) {
+                      e.dataTransfer.setData('text/plain', w.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                    }
+                  }}
                   ondragend={() => {
                     draggingWorkout = null;
                     dragOverDay = null;
@@ -289,11 +299,18 @@
     margin-left: var(--space-1);
   }
 
+  .next-name {
+    font-size: var(--font-size-base);
+    font-style: italic;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--text-color) 65%, var(--text-muted-color));
+  }
+
   .bp-chips {
     display: flex;
     gap: var(--space-1);
     flex-wrap: wrap;
-    margin: var(--space-1) 0 var(--space-2);
+    margin: var(--space-3) 0 var(--space-2);
   }
 
   .bp-chip {
