@@ -3,10 +3,13 @@
   import { all, byIndex, get, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
   import {
     getInProgressWorkout,
+    getNextWorkout,
+    startWorkout,
     startAdhocWorkout,
     finishWorkout,
     abandonWorkout,
   } from '../../lib/services/workouts';
+  import { formatDate, daysBetween, todayLocal } from '../../lib/utils/dates';
   import { kgToDisplay, displayToKg, kmToDisplay, displayToKm, formatWeight, formatDistance, formatDuration } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
   import type {
@@ -17,6 +20,7 @@
     WorkoutExercise,
     WorkoutSet,
     WorkoutTemplate,
+    WorkoutTemplateExercise,
   } from '../../lib/db/types';
   import Card from '../Card.svelte';
   import TimeInput from '../TimeInput.svelte';
@@ -33,6 +37,8 @@
   let profile: UserProfile | undefined = $state();
   let exercises: Exercise[] = $state([]);
   let templates: WorkoutTemplate[] = $state([]);
+  let nextScheduled: Workout | undefined = $state();
+  let nextPreview: { name: string; sets: number }[] = $state([]);
   let pickerTemplateId = $state('');
   let addExerciseId = $state('');
   let busy = $state(false);
@@ -68,9 +74,41 @@
       templates = (await all<WorkoutTemplate>('workout_templates')).sort((a, b) =>
         a.name.localeCompare(b.name)
       );
+      // No workout in progress: offer the program's next scheduled workout.
+      nextScheduled = await getNextWorkout();
+      if (nextScheduled?.workout_template_id) {
+        const tes = (
+          await byIndex<WorkoutTemplateExercise>(
+            'workout_template_exercises',
+            'workout_template_id',
+            nextScheduled.workout_template_id
+          )
+        ).sort((a, b) => a.position - b.position);
+        const exById = new Map(exercises.map((e) => [e.id, e]));
+        nextPreview = tes.map((te) => ({
+          name: exById.get(te.exercise_id)?.name ?? 'Unknown exercise',
+          sets: te.set_count,
+        }));
+      }
     }
     loading = false;
   });
+
+  function nextLabel(w: Workout): string {
+    if (!w.scheduled_on) return 'Unscheduled';
+    const days = daysBetween(todayLocal(), w.scheduled_on);
+    if (days === 0) return 'Scheduled for today';
+    if (days === 1) return 'Scheduled for tomorrow';
+    if (days < 0) return `Was scheduled ${formatDate(w.scheduled_on)}`;
+    return `Scheduled for ${formatDate(w.scheduled_on)}`;
+  }
+
+  async function startNextScheduled() {
+    if (!nextScheduled || busy) return;
+    busy = true;
+    await startWorkout($state.snapshot(nextScheduled) as Workout);
+    location.replace(`/workout/?id=${nextScheduled.id}`);
+  }
 
   async function loadItems() {
     if (!workout) return;
@@ -220,29 +258,53 @@
 {#if loading}
   <p class="muted">Loading…</p>
 {:else if !workout}
-  <Card title="Start a workout">
-    {#if templates.length === 0}
-      <p class="muted">
-        No workout in progress and no templates to start from —
-        <a href="/workouts/">create a template</a> first.
-      </p>
-    {:else}
-      <p class="muted" style="margin-bottom: var(--space-3);">
-        No workout in progress. Start one from a template:
-      </p>
-      <div class="picker">
-        <select bind:value={pickerTemplateId}>
-          <option value="" disabled>Choose a template…</option>
-          {#each templates as t}
-            <option value={t.id}>{t.name}</option>
-          {/each}
-        </select>
-        <button class="btn btn-primary" onclick={startFromPicker} disabled={!pickerTemplateId || busy}>
-          Start
+  <div class="stack">
+    {#if nextScheduled}
+      <Card title="Next workout in your program">
+        <h3>{nextScheduled.name}</h3>
+        <p class="muted next-when">
+          {nextLabel(nextScheduled)}
+          {#if nextScheduled.original_scheduled_on}
+            <span class="badge">bumped</span>
+          {/if}
+        </p>
+        {#if nextPreview.length > 0}
+          <ul class="preview-list">
+            {#each nextPreview as row}
+              <li>{row.name} <span class="muted">— {row.sets} sets</span></li>
+            {/each}
+          </ul>
+        {/if}
+        <button class="btn btn-primary" onclick={startNextScheduled} disabled={busy}>
+          Start this workout
         </button>
-      </div>
+      </Card>
     {/if}
-  </Card>
+
+    <Card title={nextScheduled ? 'Or start something else' : 'Start a workout'}>
+      {#if templates.length === 0}
+        <p class="muted">
+          No workout in progress and no templates to start from —
+          <a href="/workouts/">create a template</a> first.
+        </p>
+      {:else}
+        <p class="muted" style="margin-bottom: var(--space-3);">
+          Start an ad-hoc workout from any template (it won't affect your program schedule):
+        </p>
+        <div class="picker">
+          <select bind:value={pickerTemplateId}>
+            <option value="" disabled>Choose a template…</option>
+            {#each templates as t}
+              <option value={t.id}>{t.name}</option>
+            {/each}
+          </select>
+          <button class="btn btn-primary" onclick={startFromPicker} disabled={!pickerTemplateId || busy}>
+            Start
+          </button>
+        </div>
+      {/if}
+    </Card>
+  </div>
 {:else if workout.state === 'completed'}
   <Card title={workout.name}>
     <p class="muted" style="margin-bottom: var(--space-3);">Completed workout.</p>
@@ -500,5 +562,33 @@
   .picker {
     display: flex;
     gap: var(--space-2);
+  }
+
+  .next-when {
+    margin-bottom: var(--space-2);
+  }
+
+  .preview-list {
+    list-style: none;
+    padding: 0;
+    margin-bottom: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .preview-list li {
+    font-weight: 600;
+  }
+
+  .badge {
+    display: inline-block;
+    background: var(--color-warning);
+    color: var(--bg-color);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    margin-left: var(--space-1);
   }
 </style>
