@@ -10,6 +10,7 @@
   let loading = $state(true);
   let saving = $state(false);
 
+  let name = $state('');
   let weightUnit: WeightUnit = $state('kg');
   let distanceUnit: DistanceUnit = $state('km');
   let currentWeight: number | '' = $state('');
@@ -33,6 +34,7 @@
     await put(
       'user_profile',
       withSyncFields({
+        name: name.trim() || null,
         display_weight_unit: weightUnit,
         display_distance_unit: distanceUnit,
         age_years: age === '' ? null : Number(age),
@@ -69,6 +71,11 @@
     </p>
 
     <form class="stack" onsubmit={submit}>
+      <div>
+        <label for="ob-name">Your name</label>
+        <input id="ob-name" bind:value={name} placeholder="What should we call you?" />
+      </div>
+
       <div class="row">
         <div>
           <label for="ob-wu">Weight unit</label>

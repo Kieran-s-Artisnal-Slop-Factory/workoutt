@@ -4,6 +4,7 @@
   import { BODY_PARTS, MEASUREMENT_TYPES } from '../../lib/db/types';
   import type { BodyPart, Exercise, MeasurementType } from '../../lib/db/types';
   import Card from '../Card.svelte';
+  import ChipFilter from '../ChipFilter.svelte';
 
   const MEASUREMENT_LABELS: Record<MeasurementType, string> = {
     reps: 'Reps only',
@@ -17,7 +18,8 @@
   let loading = $state(true);
   let exercises: Exercise[] = $state([]);
   let search = $state('');
-  let filterPart = $state('');
+  let filterParts: string[] = $state([]);
+  let filterTypes: string[] = $state([]);
 
   let showForm = $state(false);
   let editingId: string | null = $state(null);
@@ -33,9 +35,17 @@
     exercises.filter(
       (e) =>
         (!search || e.name.toLowerCase().includes(search.toLowerCase())) &&
-        (!filterPart || e.body_parts.includes(filterPart as BodyPart))
+        (filterParts.length === 0 || e.body_parts.some((p) => filterParts.includes(p))) &&
+        (filterTypes.length === 0 || filterTypes.includes(e.measurement_type))
     )
   );
+  const anyFilter = $derived(search !== '' || filterParts.length > 0 || filterTypes.length > 0);
+
+  function clearAllFilters() {
+    search = '';
+    filterParts = [];
+    filterTypes = [];
+  }
 
   onMount(refresh);
 
@@ -162,12 +172,19 @@
 
 <div class="filters">
   <input type="search" placeholder="Search exercises…" bind:value={search} />
-  <select bind:value={filterPart}>
-    <option value="">All body parts</option>
-    {#each BODY_PARTS as part}
-      <option value={part}>{part.replace('_', ' ')}</option>
-    {/each}
-  </select>
+  <ChipFilter
+    label="Body part"
+    options={BODY_PARTS.map((p) => ({ value: p, label: p.replace('_', ' ') }))}
+    bind:selected={filterParts}
+  />
+  <ChipFilter
+    label="Measurement"
+    options={MEASUREMENT_TYPES.map((t) => ({ value: t, label: MEASUREMENT_LABELS[t] }))}
+    bind:selected={filterTypes}
+  />
+  {#if anyFilter}
+    <button type="button" class="clear-all" onclick={clearAllFilters}>✕ Clear all filters</button>
+  {/if}
 </div>
 
 {#if loading}
@@ -201,14 +218,14 @@
             }}
           >
             <td><strong>{exercise.name}</strong></td>
-            <td>
+            <td data-label="Body parts">
               <div class="chips">
                 {#each exercise.body_parts as part}
                   <span class="chip selected">{part.replace('_', ' ')}</span>
                 {/each}
               </div>
             </td>
-            <td class="muted">{MEASUREMENT_LABELS[exercise.measurement_type]}</td>
+            <td class="muted" data-label="Measurement">{MEASUREMENT_LABELS[exercise.measurement_type]}</td>
             <td class="actions-cell">
               <button
                 class="btn"
@@ -257,10 +274,22 @@
 
 <style>
   .filters {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
     margin-bottom: var(--space-4);
+  }
+
+  .clear-all {
+    align-self: flex-start;
+    background: none;
+    border: none;
+    color: var(--color-danger);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    padding: 0;
+    text-decoration: underline;
   }
 
   .field-label {
@@ -325,9 +354,4 @@
     justify-content: flex-end;
   }
 
-  @media (max-width: 30rem) {
-    .filters {
-      grid-template-columns: 1fr;
-    }
-  }
 </style>

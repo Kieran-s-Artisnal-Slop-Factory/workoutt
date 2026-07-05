@@ -24,6 +24,7 @@
 
   async function saveProfile() {
     if (!profile) return;
+    if (profile.name != null) profile.name = profile.name.trim() || null;
     profile = await put('user_profile', $state.snapshot(profile) as UserProfile);
     message = 'Preferences saved.';
   }
@@ -65,6 +66,15 @@
 
     {#if profile}
       <Card title="Preferences">
+        <div style="margin-bottom: var(--space-3);">
+          <label for="set-name">Name</label>
+          <input
+            id="set-name"
+            bind:value={profile.name}
+            onchange={saveProfile}
+            placeholder="Used in the homepage greeting"
+          />
+        </div>
         <div class="row">
           <div>
             <label for="set-wu">Weight unit</label>

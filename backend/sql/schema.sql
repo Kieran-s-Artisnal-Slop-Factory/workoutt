@@ -28,6 +28,7 @@
 -- Single row: the user (single-user app, but a table keeps sync uniform).
 CREATE TABLE user_profile (
     id                       TEXT PRIMARY KEY,
+    name                     TEXT,  -- used for the personal greeting
     display_weight_unit      TEXT NOT NULL DEFAULT 'kg'
                              CHECK (display_weight_unit IN ('kg', 'lbs')),
     display_distance_unit    TEXT NOT NULL DEFAULT 'km'

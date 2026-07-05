@@ -28,6 +28,7 @@ export async function seedSampleData(): Promise<string> {
     await put(
       'user_profile',
       withSyncFields({
+        name: null,
         display_weight_unit: 'kg' as const,
         display_distance_unit: 'km' as const,
         age_years: 30,

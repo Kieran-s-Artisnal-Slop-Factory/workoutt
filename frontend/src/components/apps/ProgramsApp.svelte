@@ -407,8 +407,8 @@
                 }}
               >
                 <td><strong>{t.name}</strong></td>
-                <td class="muted">{t.frequency_per_week}×/wk · {t.duration_weeks} wks</td>
-                <td class="muted">{t.preferred_days.map((d) => WEEKDAYS_SHORT[d]).join(', ')}</td>
+                <td class="muted" data-label="Schedule">{t.frequency_per_week}×/wk · {t.duration_weeks} wks</td>
+                <td class="muted" data-label="Days">{t.preferred_days.map((d) => WEEKDAYS_SHORT[d]).join(', ')}</td>
                 <td class="actions-cell">
                   <button
                     class="btn btn-primary"

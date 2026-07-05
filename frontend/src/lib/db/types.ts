@@ -60,6 +60,8 @@ export type WorkoutState = 'scheduled' | 'in_progress' | 'completed' | 'skipped'
 
 /** Single row (single-user app). */
 export interface UserProfile extends SyncFields {
+  /** Display name for the personal greeting. Nullable — older profiles predate it. */
+  name: string | null;
   display_weight_unit: WeightUnit;
   display_distance_unit: DistanceUnit;
   age_years: number | null;

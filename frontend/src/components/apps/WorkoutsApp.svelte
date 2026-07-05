@@ -14,9 +14,11 @@
     WorkoutTemplate,
     WorkoutTemplateExercise,
   } from '../../lib/db/types';
+  import { BODY_PARTS } from '../../lib/db/types';
   import Card from '../Card.svelte';
   import Accordion from '../Accordion.svelte';
   import TimeInput from '../TimeInput.svelte';
+  import ChipFilter from '../ChipFilter.svelte';
 
   let loading = $state(true);
   let templates: WorkoutTemplate[] = $state([]);
@@ -42,6 +44,7 @@
   let showForm = $state(false);
   let editingId: string | null = $state(null);
   let expandedTemplateId: string | null = $state(null);
+  let templateFilterParts: string[] = $state([]);
   let fName = $state('');
   let fDescription = $state('');
   let fRows: FormRow[] = $state([]);
@@ -56,6 +59,15 @@
   const formGroups = $derived(
     [...new Set([...fRows.map((r) => r.superset_group).filter((g): g is number => g != null), ...pendingGroups])].sort(
       (a, b) => a - b
+    )
+  );
+  const visibleTemplates = $derived(
+    templates.filter(
+      (t) =>
+        templateFilterParts.length === 0 ||
+        rowsFor(t.id).some((te) =>
+          exerciseById.get(te.exercise_id)?.body_parts.some((p) => templateFilterParts.includes(p))
+        )
     )
   );
 
@@ -146,6 +158,45 @@
     if (draggingRow == null) return;
     fRows[draggingRow].superset_group = group;
     if (group != null) pendingGroups = pendingGroups.filter((g) => g !== group);
+    draggingRow = null;
+    dragOverGroup = null;
+  }
+
+  // Pointer-event drag instead of HTML5 drag-and-drop: Edge intercepts
+  // native drags (shows 🚫) even with drag data set, and pointer events
+  // also work on touch screens.
+  function rowPointerDown(e: PointerEvent, i: number) {
+    draggingRow = i;
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // Pointer already released/invalid — dragging still works via bubbling.
+    }
+  }
+
+  function rowPointerMove(e: PointerEvent) {
+    if (draggingRow == null) return;
+    const el = document
+      .elementFromPoint(e.clientX, e.clientY)
+      ?.closest('[data-drop-group]') as HTMLElement | null;
+    if (!el) {
+      dragOverGroup = null;
+      return;
+    }
+    const v = el.dataset.dropGroup!;
+    dragOverGroup = v === 'ungrouped' ? 'ungrouped' : Number(v);
+  }
+
+  function rowPointerUp() {
+    if (draggingRow != null && dragOverGroup != null) {
+      dropOnGroup(dragOverGroup === 'ungrouped' ? null : dragOverGroup);
+    } else {
+      draggingRow = null;
+      dragOverGroup = null;
+    }
+  }
+
+  function rowPointerCancel() {
     draggingRow = null;
     dragOverGroup = null;
   }
@@ -290,21 +341,12 @@
       class="drag-handle"
       role="button"
       tabindex="-1"
-      draggable="true"
       title="Drag into a superset group"
       aria-label="Drag to move into a superset group"
-      ondragstart={(e) => {
-        draggingRow = i;
-        // Edge refuses drags with no data (shows 🚫); Chrome/Firefox don't care.
-        if (e.dataTransfer) {
-          e.dataTransfer.setData('text/plain', String(i));
-          e.dataTransfer.effectAllowed = 'move';
-        }
-      }}
-      ondragend={() => {
-        draggingRow = null;
-        dragOverGroup = null;
-      }}>⠿</span>
+      onpointerdown={(e) => rowPointerDown(e, i)}
+      onpointermove={rowPointerMove}
+      onpointerup={rowPointerUp}
+      onpointercancel={rowPointerCancel}>⠿</span>
     <select bind:value={row.exercise_id} aria-label="Exercise">
       {#each exercises as ex}
         <option value={ex.id}>{ex.name}</option>
@@ -366,18 +408,7 @@
             class="ungrouped"
             class:drag-over={dragOverGroup === 'ungrouped' && draggingRow != null && fRows[draggingRow]?.superset_group != null}
             role="list"
-            ondragover={(e) => {
-              if (draggingRow != null) {
-                e.preventDefault();
-                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-                dragOverGroup = 'ungrouped';
-              }
-            }}
-            ondragleave={() => (dragOverGroup = null)}
-            ondrop={(e) => {
-              e.preventDefault();
-              dropOnGroup(null);
-            }}
+            data-drop-group="ungrouped"
           >
             {#each fRows as row, i (i)}
               {#if row.superset_group == null}
@@ -394,18 +425,7 @@
               class="ss-box"
               class:drag-over={dragOverGroup === g}
               role="list"
-              ondragover={(e) => {
-                if (draggingRow != null) {
-                  e.preventDefault();
-                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-                  dragOverGroup = g;
-                }
-              }}
-              ondragleave={() => (dragOverGroup = null)}
-              ondrop={(e) => {
-                e.preventDefault();
-                dropOnGroup(g);
-              }}
+              data-drop-group={g}
             >
               <div class="ss-head">
                 <span>Superset {g}</span>
@@ -448,6 +468,16 @@
   {#if templates.length === 0}
     <p class="muted">No templates yet.</p>
   {:else}
+    <div style="margin-bottom: var(--space-3);">
+      <ChipFilter
+        label="Filter by body part"
+        options={BODY_PARTS.map((p) => ({ value: p, label: p.replace('_', ' ') }))}
+        bind:selected={templateFilterParts}
+      />
+    </div>
+    {#if visibleTemplates.length === 0}
+      <p class="muted" style="margin-bottom: var(--space-5);">No templates target those body parts.</p>
+    {:else}
     <div class="table-wrap" style="margin-bottom: var(--space-5);">
       <table class="data-table">
         <thead>
@@ -459,7 +489,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each templates as t (t.id)}
+          {#each visibleTemplates as t (t.id)}
             <tr
               class="clickable"
               aria-expanded={expandedTemplateId === t.id}
@@ -470,8 +500,8 @@
               }}
             >
               <td><strong>{t.name}</strong></td>
-              <td>{@render bodyPartChips(templateBodyParts(t.id))}</td>
-              <td class="muted">{rowsFor(t.id).length}</td>
+              <td data-label="Body parts">{@render bodyPartChips(templateBodyParts(t.id))}</td>
+              <td class="muted" data-label="Exercises">{rowsFor(t.id).length}</td>
               <td class="actions-cell">
                 <button
                   class="btn btn-primary"
@@ -521,6 +551,7 @@
         </tbody>
       </table>
     </div>
+    {/if}
   {/if}
 
   <h2 class="section-title" style="margin-bottom: var(--space-3);">History</h2>

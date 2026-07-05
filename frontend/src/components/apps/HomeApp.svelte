@@ -35,6 +35,15 @@
   let draggingWorkout: Workout | null = $state(null);
   let dragOverDay: string | null = $state(null);
   let busy = $state(false);
+  let greeting = $state('Home');
+
+  const GREETINGS: ((name: string | null) => string)[] = [
+    (n) => (n ? `Welcome back, ${n}!` : 'Welcome back!'),
+    (n) => (n ? `Ready to lift, ${n}?` : 'Ready to lift?'),
+    (n) => (n ? `Let's get moving, ${n}` : "Let's get moving"),
+    (n) => (n ? `Good to see you, ${n}` : 'Good to see you'),
+    (n) => (n ? `Time to train, ${n}` : 'Time to train'),
+  ];
 
   const today = todayLocal();
   const weekStart = addDays(today, -dayOfWeek(today));
@@ -49,6 +58,7 @@
       location.href = '/onboarding/';
       return;
     }
+    greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)](profile.name ?? null);
     await refresh();
     loading = false;
   });
@@ -115,7 +125,6 @@
   }
 
   const canDrag = (w: Workout, date: string) => w.state === 'scheduled' && date >= today;
-  const canDrop = (date: string) => draggingWorkout != null && date >= today;
 
   /** Reschedule via drag: counts as a bump (original date is preserved). */
   async function dropOnDay(date: string) {
@@ -130,7 +139,47 @@
     });
     await refresh();
   }
+
+  // Dragging uses pointer events instead of HTML5 drag-and-drop: Edge
+  // intercepts native drags (Super Drag & Drop etc.) and shows 🚫 even with
+  // drag data set, and pointer events also work on touch screens.
+  function chipPointerDown(e: PointerEvent, w: Workout, date: string) {
+    if (!canDrag(w, date)) return;
+    draggingWorkout = w;
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // Pointer already released/invalid — dragging still works via bubbling.
+    }
+  }
+
+  function chipPointerMove(e: PointerEvent) {
+    if (!draggingWorkout) return;
+    const el = document
+      .elementFromPoint(e.clientX, e.clientY)
+      ?.closest('[data-date]') as HTMLElement | null;
+    const date = el?.dataset.date ?? null;
+    dragOverDay = date && date >= today ? date : null;
+  }
+
+  function chipPointerUp() {
+    if (draggingWorkout && dragOverDay) {
+      dropOnDay(dragOverDay);
+    } else {
+      draggingWorkout = null;
+      dragOverDay = null;
+    }
+  }
+
+  function chipPointerCancel() {
+    draggingWorkout = null;
+    dragOverDay = null;
+  }
 </script>
+
+<div class="page-header">
+  <h1>{greeting}</h1>
+</div>
 
 {#if loading}
   <p class="muted">Loading…</p>
@@ -214,22 +263,10 @@
               class="day"
               class:past
               class:is-today={date === today}
-              class:drop-target={canDrop(date) && dragOverDay === date}
+              class:drop-target={draggingWorkout != null && dragOverDay === date}
               role="listitem"
+              data-date={date}
               aria-label={`${WEEKDAYS_SHORT[dayOfWeek(date)]} ${date}${past ? ' (past)' : ''}`}
-              ondragover={(e) => {
-                if (canDrop(date)) {
-                  e.preventDefault();
-                  // Edge shows a 🚫 cursor unless the drop effect is set explicitly.
-                  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-                  dragOverDay = date;
-                }
-              }}
-              ondragleave={() => (dragOverDay = null)}
-              ondrop={(e) => {
-                e.preventDefault();
-                dropOnDay(date);
-              }}
             >
               <span class="day-label">
                 {WEEKDAYS_SHORT[dayOfWeek(date)]}
@@ -240,22 +277,13 @@
                   class="week-chip"
                   class:done={w.state === 'completed'}
                   class:draggable-chip={canDrag(w, date)}
-                  draggable={canDrag(w, date)}
+                  class:dragging={draggingWorkout?.id === w.id}
                   role="listitem"
                   title={canDrag(w, date) ? 'Drag to reschedule' : w.state}
-                  ondragstart={(e) => {
-                    draggingWorkout = w;
-                    // Edge refuses the drag entirely (🚫) unless real drag data
-                    // is set; Chrome/Firefox tolerate an empty drag.
-                    if (e.dataTransfer) {
-                      e.dataTransfer.setData('text/plain', w.id);
-                      e.dataTransfer.effectAllowed = 'move';
-                    }
-                  }}
-                  ondragend={() => {
-                    draggingWorkout = null;
-                    dragOverDay = null;
-                  }}
+                  onpointerdown={(e) => chipPointerDown(e, w, date)}
+                  onpointermove={chipPointerMove}
+                  onpointerup={chipPointerUp}
+                  onpointercancel={chipPointerCancel}
                 >
                   {w.name}
                   {#if w.state === 'completed'}✓{/if}
@@ -285,9 +313,9 @@
               {#each prs as pr}
                 <tr>
                   <td class="pr-exercise">{pr.exercise.name}</td>
-                  <td class="muted">{pr.label}</td>
-                  <td class="pr-value">{formatRecordValue(pr.label, pr.entry, wu, du)}</td>
-                  <td class="muted pr-date-col">{formatDate(pr.entry.date)}</td>
+                  <td class="muted" data-label="Metric">{pr.label}</td>
+                  <td class="pr-value" data-label="Value">{formatRecordValue(pr.label, pr.entry, wu, du)}</td>
+                  <td class="muted pr-date-col" data-label="Date">{formatDate(pr.entry.date)}</td>
                 </tr>
               {/each}
             </tbody>
@@ -426,10 +454,16 @@
 
   .draggable-chip {
     cursor: grab;
+    touch-action: none; /* pointer-drag needs the browser to not scroll instead */
+    user-select: none;
   }
 
   .draggable-chip:active {
     cursor: grabbing;
+  }
+
+  .week-chip.dragging {
+    opacity: 0.5;
   }
 
   .pr-exercise {
