@@ -59,9 +59,12 @@ CREATE INDEX idx_body_weight_measured_on ON body_weight_entries (measured_on);
 CREATE TABLE exercises (
     id                TEXT PRIMARY KEY,
     name              TEXT NOT NULL,
-    body_part         TEXT NOT NULL,          -- e.g. chest, back, shoulders, biceps,
-                                              -- triceps, quads, hamstrings, glutes,
-                                              -- calves, core, full_body, cardio
+    body_parts        TEXT NOT NULL DEFAULT '[]',  -- JSON array of body parts an
+                                              -- exercise targets, e.g.
+                                              -- '["lats","biceps","traps"]' for pull-ups.
+                                              -- Query with json_each() when needed;
+                                              -- IndexedDB mirrors this with a
+                                              -- multiEntry index.
     description       TEXT NOT NULL DEFAULT '',
     video_url         TEXT,                   -- optional how-to video link
     image_urls        TEXT NOT NULL DEFAULT '[]',  -- JSON array of URLs
@@ -77,8 +80,6 @@ CREATE TABLE exercises (
     deleted_at        TEXT,
     server_seq        INTEGER
 );
-
-CREATE INDEX idx_exercises_body_part ON exercises (body_part);
 
 -- Workout templates: what a workout SHOULD look like.
 CREATE TABLE workout_templates (

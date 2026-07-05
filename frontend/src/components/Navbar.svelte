@@ -8,6 +8,7 @@
     { href: '/workouts/', label: 'Workouts' },
     { href: '/programs/', label: 'Programs' },
     { href: '/records/', label: 'Records' },
+    { href: '/settings/', label: 'Settings' },
   ];
 
   const normalize = (p) => p.replace(/\/+$/, '') || '/';

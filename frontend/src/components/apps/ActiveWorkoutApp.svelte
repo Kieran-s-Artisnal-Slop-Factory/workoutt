@@ -1,0 +1,458 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { all, byIndex, get, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
+  import {
+    getInProgressWorkout,
+    startAdhocWorkout,
+    finishWorkout,
+    abandonWorkout,
+  } from '../../lib/services/workouts';
+  import { kgToDisplay, displayToKg, kmToDisplay, displayToKm, formatWeight, formatDistance, formatDuration } from '../../lib/utils/units';
+  import type {
+    Exercise,
+    UserProfile,
+    Workout,
+    WorkoutExercise,
+    WorkoutSet,
+    WorkoutTemplate,
+  } from '../../lib/db/types';
+  import Card from '../Card.svelte';
+
+  interface Item {
+    we: WorkoutExercise;
+    exercise: Exercise | undefined;
+    sets: WorkoutSet[];
+  }
+
+  let loading = $state(true);
+  let workout: Workout | undefined = $state();
+  let items: Item[] = $state([]);
+  let profile: UserProfile | undefined = $state();
+  let exercises: Exercise[] = $state([]);
+  let templates: WorkoutTemplate[] = $state([]);
+  let pickerTemplateId = $state('');
+  let addExerciseId = $state('');
+  let busy = $state(false);
+
+  const wu = $derived(profile?.display_weight_unit ?? 'kg');
+  const du = $derived(profile?.display_distance_unit ?? 'km');
+  const doneCount = $derived(items.flatMap((i) => i.sets).filter((s) => s.completed).length);
+  const totalCount = $derived(items.flatMap((i) => i.sets).length);
+
+  onMount(async () => {
+    profile = (await all<UserProfile>('user_profile'))[0];
+    exercises = (await all<Exercise>('exercises')).sort((a, b) => a.name.localeCompare(b.name));
+
+    const id = new URLSearchParams(location.search).get('id');
+    workout = id ? await get<Workout>('workouts', id) : await getInProgressWorkout();
+
+    if (workout) {
+      await loadItems();
+    } else {
+      templates = (await all<WorkoutTemplate>('workout_templates')).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+    }
+    loading = false;
+  });
+
+  async function loadItems() {
+    if (!workout) return;
+    const wes = (await byIndex<WorkoutExercise>('workout_exercises', 'workout_id', workout.id)).sort(
+      (a, b) => a.position - b.position
+    );
+    const exById = new Map(exercises.map((e) => [e.id, e]));
+    const loaded: Item[] = [];
+    for (const we of wes) {
+      const sets = (await byIndex<WorkoutSet>('workout_sets', 'workout_exercise_id', we.id)).sort(
+        (a, b) => a.position - b.position
+      );
+      loaded.push({ we, exercise: exById.get(we.exercise_id), sets });
+    }
+    items = loaded;
+  }
+
+  async function startFromPicker() {
+    const template = templates.find((t) => t.id === pickerTemplateId);
+    if (!template || busy) return;
+    busy = true;
+    const w = await startAdhocWorkout(template);
+    location.replace(`/workout/?id=${w.id}`);
+  }
+
+  function num(e: Event): number | null {
+    const v = (e.target as HTMLInputElement).value;
+    return v === '' ? null : Number(v);
+  }
+
+  /**
+   * Persist a patch to a set immediately — nothing lives only in memory.
+   * The patch is applied to reactive state FIRST and the merged row is what
+   * gets written; otherwise two rapid edits (e.g. weight change + done
+   * checkbox in one gesture) each snapshot the same stale row and the second
+   * write silently reverts the first.
+   */
+  async function saveSet(item: Item, set: WorkoutSet, patch: Partial<WorkoutSet>) {
+    const idx = item.sets.findIndex((s) => s.id === set.id);
+    if (idx < 0) return;
+    Object.assign(item.sets[idx], patch);
+    const saved = await put('workout_sets', $state.snapshot(item.sets[idx]) as WorkoutSet);
+    item.sets[idx].updated_at = saved.updated_at;
+  }
+
+  async function addSet(item: Item) {
+    const last = item.sets[item.sets.length - 1];
+    const created = await put(
+      'workout_sets',
+      withSyncFields({
+        workout_exercise_id: item.we.id,
+        position: item.sets.length,
+        completed: false,
+        reps: last?.reps ?? null,
+        weight_kg: last?.weight_kg ?? null,
+        time_seconds: last?.time_seconds ?? null,
+        distance_km: last?.distance_km ?? null,
+      })
+    );
+    item.sets.push(created);
+  }
+
+  async function removeSet(item: Item, set: WorkoutSet) {
+    await softDelete('workout_sets', set.id);
+    item.sets = item.sets.filter((s) => s.id !== set.id);
+  }
+
+  async function addExercise() {
+    if (!workout || !addExerciseId) return;
+    const exercise = exercises.find((e) => e.id === addExerciseId);
+    if (!exercise) return;
+    const we = await put(
+      'workout_exercises',
+      withSyncFields({
+        workout_id: workout.id,
+        exercise_id: exercise.id,
+        position: items.length,
+        superset_group: null,
+      })
+    );
+    const sets: WorkoutSet[] = [];
+    for (let i = 0; i < 3; i++) {
+      sets.push(
+        await put(
+          'workout_sets',
+          withSyncFields({
+            workout_exercise_id: we.id,
+            position: i,
+            completed: false,
+            reps: null,
+            weight_kg: null,
+            time_seconds: null,
+            distance_km: null,
+          })
+        )
+      );
+    }
+    items.push({ we, exercise, sets });
+    addExerciseId = '';
+  }
+
+  async function removeExercise(item: Item) {
+    if (!confirm(`Remove ${item.exercise?.name ?? 'this exercise'} from the workout?`)) return;
+    await softDeleteMany('workout_sets', item.sets.map((s) => s.id));
+    await softDelete('workout_exercises', item.we.id);
+    items = items.filter((i) => i.we.id !== item.we.id);
+  }
+
+  async function finish() {
+    if (!workout || busy) return;
+    if (doneCount === 0 && !confirm('No sets are marked done. Finish anyway?')) return;
+    busy = true;
+    await finishWorkout($state.snapshot(workout) as Workout);
+    location.href = '/';
+  }
+
+  async function abandon() {
+    if (!workout || busy) return;
+    if (!confirm('Abandon this workout? It will be discarded entirely.')) return;
+    busy = true;
+    await abandonWorkout($state.snapshot(workout) as Workout);
+    location.href = '/';
+  }
+
+  function summarizeSet(s: WorkoutSet): string {
+    const parts: string[] = [];
+    if (s.weight_kg != null) parts.push(formatWeight(s.weight_kg, wu));
+    if (s.reps != null) parts.push(`× ${s.reps}`);
+    if (s.time_seconds != null) parts.push(formatDuration(s.time_seconds));
+    if (s.distance_km != null) parts.push(formatDistance(s.distance_km, du));
+    return parts.join(' ') || '—';
+  }
+
+  const round1 = (n: number) => Math.round(n * 10) / 10;
+</script>
+
+{#if loading}
+  <p class="muted">Loading…</p>
+{:else if !workout}
+  <Card title="Start a workout">
+    {#if templates.length === 0}
+      <p class="muted">
+        No workout in progress and no templates to start from —
+        <a href="/workouts/">create a template</a> first.
+      </p>
+    {:else}
+      <p class="muted" style="margin-bottom: var(--space-3);">
+        No workout in progress. Start one from a template:
+      </p>
+      <div class="picker">
+        <select bind:value={pickerTemplateId}>
+          <option value="" disabled>Choose a template…</option>
+          {#each templates as t}
+            <option value={t.id}>{t.name}</option>
+          {/each}
+        </select>
+        <button class="btn btn-primary" onclick={startFromPicker} disabled={!pickerTemplateId || busy}>
+          Start
+        </button>
+      </div>
+    {/if}
+  </Card>
+{:else if workout.state === 'completed'}
+  <Card title={workout.name}>
+    <p class="muted" style="margin-bottom: var(--space-3);">Completed workout.</p>
+    {#each items as item (item.we.id)}
+      <div style="margin-bottom: var(--space-2);">
+        <strong>{item.exercise?.name ?? 'Unknown exercise'}</strong>
+        <ul style="padding-left: var(--space-4);">
+          {#each item.sets.filter((s) => s.completed) as s}
+            <li>Set {s.position + 1}: {summarizeSet(s)}</li>
+          {/each}
+        </ul>
+      </div>
+    {/each}
+    <a class="btn" href="/">Back home</a>
+  </Card>
+{:else}
+  <div class="workout-header">
+    <div>
+      <h2>{workout.name}</h2>
+      <p class="muted">{doneCount}/{totalCount} sets done</p>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-danger" onclick={abandon} disabled={busy}>Abandon</button>
+      <button class="btn btn-primary" onclick={finish} disabled={busy}>Finish workout</button>
+    </div>
+  </div>
+
+  <div class="stack">
+    {#each items as item (item.we.id)}
+      {@const mt = item.exercise?.measurement_type ?? 'weight_reps'}
+      <Card>
+        <div class="exercise-header">
+          <h3>
+            {item.exercise?.name ?? 'Unknown exercise'}
+            {#if item.we.superset_group != null}
+              <span class="ss-badge">SS{item.we.superset_group}</span>
+            {/if}
+          </h3>
+          <button class="btn btn-danger" onclick={() => removeExercise(item)} aria-label="Remove exercise">✕</button>
+        </div>
+
+        <div class="sets">
+          <div class="set-row set-head">
+            <span>Set</span>
+            {#if mt === 'weight_reps' || mt === 'weight_time'}<span>Weight ({wu})</span>{/if}
+            {#if mt === 'reps' || mt === 'weight_reps'}<span>Reps</span>{/if}
+            {#if mt === 'time' || mt === 'distance_time' || mt === 'weight_time'}<span>Time (sec)</span>{/if}
+            {#if mt === 'distance' || mt === 'distance_time'}<span>Distance ({du})</span>{/if}
+            <span>Done</span>
+            <span></span>
+          </div>
+
+          {#each item.sets as s (s.id)}
+            <div class="set-row" class:done={s.completed}>
+              <span class="set-num">{s.position + 1}</span>
+              {#if mt === 'weight_reps' || mt === 'weight_time'}
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  inputmode="decimal"
+                  value={s.weight_kg == null ? '' : round1(kgToDisplay(s.weight_kg, wu))}
+                  onchange={(e) => {
+                    const v = num(e);
+                    saveSet(item, s, { weight_kg: v == null ? null : displayToKg(v, wu) });
+                  }}
+                  aria-label={`Set ${s.position + 1} weight`}
+                />
+              {/if}
+              {#if mt === 'reps' || mt === 'weight_reps'}
+                <input
+                  type="number"
+                  min="0"
+                  inputmode="numeric"
+                  value={s.reps ?? ''}
+                  onchange={(e) => saveSet(item, s, { reps: num(e) })}
+                  aria-label={`Set ${s.position + 1} reps`}
+                />
+              {/if}
+              {#if mt === 'time' || mt === 'distance_time' || mt === 'weight_time'}
+                <input
+                  type="number"
+                  min="0"
+                  inputmode="numeric"
+                  value={s.time_seconds ?? ''}
+                  onchange={(e) => saveSet(item, s, { time_seconds: num(e) })}
+                  aria-label={`Set ${s.position + 1} time in seconds`}
+                />
+              {/if}
+              {#if mt === 'distance' || mt === 'distance_time'}
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  inputmode="decimal"
+                  value={s.distance_km == null ? '' : round1(kmToDisplay(s.distance_km, du) * 100) / 100}
+                  onchange={(e) => {
+                    const v = num(e);
+                    saveSet(item, s, { distance_km: v == null ? null : displayToKm(v, du) });
+                  }}
+                  aria-label={`Set ${s.position + 1} distance`}
+                />
+              {/if}
+              <input
+                type="checkbox"
+                class="done-check"
+                checked={s.completed}
+                onchange={(e) => saveSet(item, s, { completed: (e.target as HTMLInputElement).checked })}
+                aria-label={`Set ${s.position + 1} done`}
+              />
+              <button class="remove-set" onclick={() => removeSet(item, s)} aria-label={`Remove set ${s.position + 1}`}>
+                ✕
+              </button>
+            </div>
+          {/each}
+        </div>
+
+        <button class="btn" style="margin-top: var(--space-2);" onclick={() => addSet(item)}>
+          + Add set
+        </button>
+      </Card>
+    {/each}
+
+    <Card title="Add exercise">
+      <div class="picker">
+        <select bind:value={addExerciseId}>
+          <option value="" disabled>Choose an exercise…</option>
+          {#each exercises as ex}
+            <option value={ex.id}>{ex.name}</option>
+          {/each}
+        </select>
+        <button class="btn" onclick={addExercise} disabled={!addExerciseId}>Add</button>
+      </div>
+    </Card>
+  </div>
+{/if}
+
+<style>
+  .workout-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+    flex-wrap: wrap;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .exercise-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+
+  .ss-badge {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    vertical-align: middle;
+  }
+
+  .sets {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .set-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .set-row > input[type='number'] {
+    flex: 1;
+    min-width: 3rem;
+  }
+
+  .set-head {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+
+  .set-head > span {
+    flex: 1;
+  }
+
+  .set-head > span:first-child,
+  .set-num {
+    flex: 0 0 2rem;
+  }
+
+  .set-head > span:nth-last-child(2) {
+    flex: 0 0 2.5rem;
+  }
+
+  .set-head > span:last-child {
+    flex: 0 0 2rem;
+  }
+
+  .set-row.done .set-num {
+    color: var(--color-success);
+    font-weight: 700;
+  }
+
+  .done-check {
+    flex: 0 0 2.5rem;
+    width: 1.4rem;
+    height: 1.4rem;
+    accent-color: var(--color-primary);
+  }
+
+  .remove-set {
+    flex: 0 0 2rem;
+    background: none;
+    border: none;
+    color: var(--text-muted-color);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+  }
+
+  .remove-set:hover {
+    color: var(--color-danger);
+  }
+
+  .picker {
+    display: flex;
+    gap: var(--space-2);
+  }
+</style>

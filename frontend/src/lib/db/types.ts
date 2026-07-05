@@ -39,6 +39,8 @@ export type MeasurementType = (typeof MEASUREMENT_TYPES)[number];
 export const BODY_PARTS = [
   'chest',
   'back',
+  'lats',
+  'traps',
   'shoulders',
   'biceps',
   'triceps',
@@ -75,7 +77,8 @@ export interface BodyWeightEntry extends SyncFields {
 
 export interface Exercise extends SyncFields {
   name: string;
-  body_part: BodyPart;
+  /** One or more body parts the exercise targets (e.g. pull-ups: lats, biceps, traps). */
+  body_parts: BodyPart[];
   description: string;
   video_url: string | null;
   image_urls: string[];
@@ -174,20 +177,27 @@ export interface WorkoutSet extends SyncFields {
 
 /**
  * IndexedDB object store definitions. Store names match SQL table names;
- * every store uses keyPath 'id'. Indexes mirror the SQL indexes.
+ * every store uses keyPath 'id'. Indexes mirror the SQL indexes, except
+ * body_parts which is a multiEntry index over the array (SQLite side uses
+ * json_each() instead).
  */
-export const STORES = {
+export interface StoreIndex {
+  name: string;
+  multiEntry?: boolean;
+}
+
+export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   user_profile: { indexes: [] },
-  body_weight_entries: { indexes: ['measured_on'] },
-  exercises: { indexes: ['body_part'] },
+  body_weight_entries: { indexes: [{ name: 'measured_on' }] },
+  exercises: { indexes: [{ name: 'body_parts', multiEntry: true }] },
   workout_templates: { indexes: [] },
-  workout_template_exercises: { indexes: ['workout_template_id'] },
+  workout_template_exercises: { indexes: [{ name: 'workout_template_id' }] },
   program_templates: { indexes: [] },
-  program_template_workouts: { indexes: ['program_template_id'] },
-  programs: { indexes: ['state'] },
-  workouts: { indexes: ['program_id', 'scheduled_on', 'state'] },
-  workout_exercises: { indexes: ['workout_id'] },
-  workout_sets: { indexes: ['workout_exercise_id'] },
-} as const;
+  program_template_workouts: { indexes: [{ name: 'program_template_id' }] },
+  programs: { indexes: [{ name: 'state' }] },
+  workouts: { indexes: [{ name: 'program_id' }, { name: 'scheduled_on' }, { name: 'state' }] },
+  workout_exercises: { indexes: [{ name: 'workout_id' }] },
+  workout_sets: { indexes: [{ name: 'workout_exercise_id' }] },
+};
 
 export type StoreName = keyof typeof STORES;

@@ -1,20 +1,11 @@
 ---
 // Active workout page. Fully static build, so the workout instance id comes
 // from the query string (?id=...) and is read client-side by the island.
+// Every set entry is persisted to IndexedDB the moment it changes.
 import Layout from '../layouts/Layout.astro';
-import Card from '../components/Card.svelte';
+import ActiveWorkoutApp from '../components/apps/ActiveWorkoutApp.svelte';
 ---
 
 <Layout title="Active workout" hideFab>
-  <div class="page-header">
-    <h1>Active workout</h1>
-  </div>
-
-  <Card>
-    <p class="muted">
-      The active workout flow lives here: step through exercises and sets,
-      record actual values as you go (persisted immediately), and finish or
-      abandon the session.
-    </p>
-  </Card>
+  <ActiveWorkoutApp client:only="svelte" />
 </Layout>

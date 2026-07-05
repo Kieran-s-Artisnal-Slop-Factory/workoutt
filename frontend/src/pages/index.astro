@@ -1,33 +1,11 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import Card from '../components/Card.svelte';
+import HomeApp from '../components/apps/HomeApp.svelte';
 ---
 
 <Layout title="Home">
   <div class="page-header">
     <h1>Home</h1>
   </div>
-
-  <div class="grid-2">
-    <Card title="Next workout">
-      <p class="muted">
-        Your next scheduled workout will show up here once you have an active
-        program — which workout it is this week, when it's scheduled, and
-        whether it was bumped.
-      </p>
-      <a class="btn btn-primary" href="/workout/" style="margin-top: var(--space-3);">
-        Start workout
-      </a>
-    </Card>
-
-    <Card title="Current program">
-      <p class="muted">
-        Program progress appears here: how many workouts you've completed out
-        of the total, and when the program ends.
-      </p>
-      <a class="btn" href="/programs/" style="margin-top: var(--space-3);">
-        Set up a program
-      </a>
-    </Card>
-  </div>
+  <HomeApp client:only="svelte" />
 </Layout>

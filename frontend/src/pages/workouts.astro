@@ -1,24 +1,8 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import Card from '../components/Card.svelte';
+import WorkoutsApp from '../components/apps/WorkoutsApp.svelte';
 ---
 
 <Layout title="Workouts">
-  <div class="page-header">
-    <h1>Workouts</h1>
-    <button class="btn btn-primary">New template</button>
-  </div>
-
-  <div class="stack">
-    <Card title="Workout templates">
-      <p class="muted">
-        Templates define the exercises, set counts, and supersets that make up
-        a workout.
-      </p>
-    </Card>
-
-    <Card title="History">
-      <p class="muted">Past workouts you've completed will be listed here.</p>
-    </Card>
-  </div>
+  <WorkoutsApp client:only="svelte" />
 </Layout>

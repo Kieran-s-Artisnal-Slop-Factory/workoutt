@@ -33,7 +33,7 @@ This project is a workout tracker and planner. The primary features are:
         - Initial weight entry during onboarding
         - current weight can be entered at any time
 - Ability to specify exercises
-    - Give exercises a name, and which body part they target
+    - Give exercises a name, and one or more body parts they target (e.g. pull-ups target lats, biceps, and traps)
     - Have a description
     - Have an optional link to a video showing off how to do the exercise
     - Have an optional set of images to show off examples of the exercise
@@ -68,61 +68,61 @@ This project is a workout tracker and planner. The primary features are:
 
 ## Phase 1
 
-- [ ] Design the data schema that addresses all the features laid out in the features section, confirming before committing to it
-    - [ ] One logical schema, designed for both targets up front: define the IndexedDB object stores (source of truth) and the mirroring sqlite schema (sync target) together, so field names, types, and keys line up 1:1 before any code is written
-        - [ ] Write the sqlite DDL now (it doubles as the schema's documentation and is ready for sqlc in Phase 3), even though the server itself isn't built until Phase 3
-    - [ ] UUID primary keys, `updated_at` on every entity, soft deletes via `deleted_at`, and a nullable integer `server_seq` column on every synced table (null until the server first accepts the row — see the sync cursor decision above)
-    - [ ] Templates should be stored separately from instances of the events when they occur
-        - [ ] For example a workout template should guide what the workout should look like, but the actual workout may end up with different number of reps/sets based on what the user actually did
-- [ ] Scaffold out the project frontend and backend in separate folders
-- [ ] Frontend
-    - [ ] Data layer: IndexedDB (via the `idb` npm package — accepted dependency exception, ~1KB promise wrapper over the raw event-based API) + Svelte 5 rune-based stores that all pages read/write (no mock data needed — this is the real store from day one)
-        - [ ] Version the IndexedDB schema from day one: maintain an ordered list of upgrade functions run from `onupgradeneeded`, one per schema version, same discipline as server migrations. Once sync exists (Phase 3), client migrations and the sqlite schema must change in lockstep.
-        - [ ] Request persistent storage on first launch via `navigator.storage.persist()`; if denied, show a warning that data is evictable until the PWA is installed
-    - [ ] Data export (backup): a settings/menu action that serializes the entire IndexedDB contents to one downloadable JSON file with a versioned envelope (`{schemaVersion, exportedAt, data: {<storeName>: rows[]}}`), plus a matching import that restores from that file. This is the only backup until sync ships in Phase 3, which is why it lands in Phase 1.
-    - [ ] Seed script that populates IndexedDB with sample exercises/templates/history for development
-    - [ ] Minimal onboarding flow (first launch): display units (kg/lbs, km/mi), initial weight, age, height, experience level by years of workout experience (beginner <1 year, intermediate <5, advanced 5+)
-    - [ ] Define the initial styles
-        - [ ] Define plain CSS theme with configurable variables for color, font-size, padding, etc.
-        - [ ] Re-usable "base" Components
-            - [ ] Card
-            - [ ] Floating Action Button Nav
-            - [ ] Navbar w/hamburger menu on mobile
-            - [ ] Charts (using Observable Plot — conscious exception to the few-dependencies rule)
-                - [ ] Bar chart (use this component https://kieranwood.ca/components/stacks/astro-svelte/observable-plot/barchart/ )
-                - [ ] Line chart (use this component https://kieranwood.ca/components/stacks/astro-svelte/observable-plot/linechart/ )
-            - [ ] Accordion
-    - [ ] Build out initial Pages
-        - [ ] Homepage
-            - [ ] Shows details about your next workout
-                - [ ] When next workout is
-                - [ ] Which workout it is this week
-                - [ ] If it was already "bumped"
-                - [ ] Button to start it (goes to the Active workout page)
-            - [ ] Shows details about your program
-                - [ ] How many workouts out of the total you're through
-                - [ ] When it ends
-        - [ ] Active workout page (core loop)
-            - [ ] Step through the workout's exercises and sets, entering actual values per set and checking them off
-            - [ ] Persist every set entry/edit to IndexedDB the moment it happens (the workout instance sits in "in progress" state) — navigating away or closing the tab mid-workout must lose nothing, and returning to the page resumes where the user left off
-            - [ ] Add/remove sets and adjust values vs. what the template prescribed
-            - [ ] Finish or abandon the workout; finishing saves it to history
-        - [ ] Exercise overview page
-            - [ ] Be able to look at and manage exercises that can be used in workouts
-        - [ ] Workout Overview page
-            - [ ] Be able to look at and manage workout templates
-            - [ ] Be able to view past workouts
-        - [ ] Program overview page
-            - [ ] Be able to look at and manage Program templates
-        - [ ] Records page
-            - [ ] Show information about current and previous PR's, when they were achieved, and what the values were
+- [x] Design the data schema that addresses all the features laid out in the features section, confirming before committing to it
+    - [x] One logical schema, designed for both targets up front: define the IndexedDB object stores (source of truth) and the mirroring sqlite schema (sync target) together, so field names, types, and keys line up 1:1 before any code is written
+        - [x] Write the sqlite DDL now (it doubles as the schema's documentation and is ready for sqlc in Phase 3), even though the server itself isn't built until Phase 3
+    - [x] UUID primary keys, `updated_at` on every entity, soft deletes via `deleted_at`, and a nullable integer `server_seq` column on every synced table (null until the server first accepts the row — see the sync cursor decision above)
+    - [x] Templates should be stored separately from instances of the events when they occur
+        - [x] For example a workout template should guide what the workout should look like, but the actual workout may end up with different number of reps/sets based on what the user actually did
+- [x] Scaffold out the project frontend and backend in separate folders
+- [x] Frontend
+    - [x] Data layer: IndexedDB (via the `idb` npm package — accepted dependency exception, ~1KB promise wrapper over the raw event-based API) + Svelte 5 rune-based stores that all pages read/write (no mock data needed — this is the real store from day one)
+        - [x] Version the IndexedDB schema from day one: maintain an ordered list of upgrade functions run from `onupgradeneeded`, one per schema version, same discipline as server migrations. Once sync exists (Phase 3), client migrations and the sqlite schema must change in lockstep.
+        - [x] Request persistent storage on first launch via `navigator.storage.persist()`; if denied, show a warning that data is evictable until the PWA is installed
+    - [x] Data export (backup): a settings/menu action that serializes the entire IndexedDB contents to one downloadable JSON file with a versioned envelope (`{schemaVersion, exportedAt, data: {<storeName>: rows[]}}`), plus a matching import that restores from that file. This is the only backup until sync ships in Phase 3, which is why it lands in Phase 1.
+    - [x] Seed script that populates IndexedDB with sample exercises/templates/history for development
+    - [x] Minimal onboarding flow (first launch): display units (kg/lbs, km/mi), initial weight, age, height, experience level by years of workout experience (beginner <1 year, intermediate <5, advanced 5+)
+    - [x] Define the initial styles
+        - [x] Define plain CSS theme with configurable variables for color, font-size, padding, etc.
+        - [x] Re-usable "base" Components
+            - [x] Card
+            - [x] Floating Action Button Nav
+            - [x] Navbar w/hamburger menu on mobile
+            - [x] Charts (using Observable Plot — conscious exception to the few-dependencies rule)
+                - [x] Bar chart (use this component https://kieranwood.ca/components/stacks/astro-svelte/observable-plot/barchart/ )
+                - [x] Line chart (use this component https://kieranwood.ca/components/stacks/astro-svelte/observable-plot/linechart/ )
+            - [x] Accordion
+    - [x] Build out initial Pages
+        - [x] Homepage
+            - [x] Shows details about your next workout
+                - [x] When next workout is
+                - [x] Which workout it is this week
+                - [x] If it was already "bumped"
+                - [x] Button to start it (goes to the Active workout page)
+            - [x] Shows details about your program
+                - [x] How many workouts out of the total you're through
+                - [x] When it ends
+        - [x] Active workout page (core loop)
+            - [x] Step through the workout's exercises and sets, entering actual values per set and checking them off
+            - [x] Persist every set entry/edit to IndexedDB the moment it happens (the workout instance sits in "in progress" state) — navigating away or closing the tab mid-workout must lose nothing, and returning to the page resumes where the user left off
+            - [x] Add/remove sets and adjust values vs. what the template prescribed
+            - [x] Finish or abandon the workout; finishing saves it to history
+        - [x] Exercise overview page
+            - [x] Be able to look at and manage exercises that can be used in workouts
+        - [x] Workout Overview page
+            - [x] Be able to look at and manage workout templates
+            - [x] Be able to view past workouts
+        - [x] Program overview page
+            - [x] Be able to look at and manage Program templates
+        - [x] Records page
+            - [x] Show information about current and previous PR's, when they were achieved, and what the values were
 
 
 ## Phase 2
 
 - [ ] Frontend
     - [ ] Program scheduling logic: generate the schedule from frequency + preferred days, implement bump/skip handling and workout instance states
-    - [ ] Weight tracking entry + history chart
+    - [x] Weight tracking entry + history chart
     - [ ] Polish onboarding (validation, editing preferences later from a settings page)
 
 ## Phase 3

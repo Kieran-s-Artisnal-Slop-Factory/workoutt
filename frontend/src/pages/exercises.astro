@@ -1,19 +1,8 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import Card from '../components/Card.svelte';
+import ExercisesApp from '../components/apps/ExercisesApp.svelte';
 ---
 
 <Layout title="Exercises">
-  <div class="page-header">
-    <h1>Exercises</h1>
-    <button class="btn btn-primary">New exercise</button>
-  </div>
-
-  <Card>
-    <p class="muted">
-      Search and manage the exercises available to your workouts. Each exercise
-      has a name, target body part, description, measurement type, and optional
-      video link and images.
-    </p>
-  </Card>
+  <ExercisesApp client:only="svelte" />
 </Layout>
