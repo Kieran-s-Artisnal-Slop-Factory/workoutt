@@ -29,29 +29,100 @@
 
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
   const du = $derived(profile?.display_distance_unit ?? 'km');
+  const highlightedIds = $derived(new Set(profile?.highlighted_exercise_ids ?? []));
+  const highlightedRecords = $derived(records.filter((r) => highlightedIds.has(r.exercise.id)));
+  const otherRecords = $derived(records.filter((r) => !highlightedIds.has(r.exercise.id)));
+
+  async function toggleHighlight(exerciseId: string) {
+    if (!profile) return;
+    const current = profile.highlighted_exercise_ids ?? [];
+    profile.highlighted_exercise_ids = current.includes(exerciseId)
+      ? current.filter((id) => id !== exerciseId)
+      : [...current, exerciseId];
+    profile = await put('user_profile', $state.snapshot(profile) as UserProfile);
+  }
 
   const formatValue = (label: string, entry: RecordEntry) =>
     formatRecordValue(label, entry, wu, du);
 
-  const weightChartData = $derived(
-    weightEntries.map((e) => ({
-      // Date objects so Plot uses a proper time scale, not a point scale
-      date: parseLocalDate(e.measured_on),
-      weight: Math.round(kgToDisplay(e.weight_kg, wu) * 10) / 10,
-    }))
-  );
+  // One point per day: if a day has several entries (e.g. logged twice),
+  // chart the most recently updated one — stacked same-day points render as
+  // an unreadable vertical smear otherwise.
+  const weightChartData = $derived.by(() => {
+    const byDay = new Map<string, BodyWeightEntry>();
+    for (const e of weightEntries) {
+      const prev = byDay.get(e.measured_on);
+      if (!prev || e.updated_at > prev.updated_at) byDay.set(e.measured_on, e);
+    }
+    return [...byDay.values()]
+      .sort((a, b) => a.measured_on.localeCompare(b.measured_on))
+      .map((e) => ({
+        // Date objects so Plot uses a proper time scale, not a point scale
+        date: parseLocalDate(e.measured_on),
+        weight: Math.round(kgToDisplay(e.weight_kg, wu) * 10) / 10,
+      }));
+  });
 
+  /** Upsert: logging again on the same day updates that day's entry. */
   async function addWeight(e: SubmitEvent) {
     e.preventDefault();
     if (newWeight === '') return;
-    await put(
-      'body_weight_entries',
-      withSyncFields({ weight_kg: displayToKg(Number(newWeight), wu), measured_on: todayLocal() })
-    );
+    const today = todayLocal();
+    const kg = displayToKg(Number(newWeight), wu);
+    const existing = weightEntries
+      .filter((en) => en.measured_on === today)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+    if (existing) {
+      await put('body_weight_entries', { ...($state.snapshot(existing) as BodyWeightEntry), weight_kg: kg });
+    } else {
+      await put('body_weight_entries', withSyncFields({ weight_kg: kg, measured_on: today }));
+    }
     newWeight = '';
     await refresh();
   }
 </script>
+
+{#snippet recordCard(rec: ExerciseRecords)}
+  <Card>
+    <div class="rec-head">
+      <h3 class="rec-name">{rec.exercise.name}</h3>
+      <button
+        class="star"
+        class:active={highlightedIds.has(rec.exercise.id)}
+        title={highlightedIds.has(rec.exercise.id) ? 'Remove from Highlighted PRs' : 'Add to Highlighted PRs'}
+        aria-label={highlightedIds.has(rec.exercise.id)
+          ? `Remove ${rec.exercise.name} from Highlighted PRs`
+          : `Add ${rec.exercise.name} to Highlighted PRs`}
+        aria-pressed={highlightedIds.has(rec.exercise.id)}
+        onclick={() => toggleHighlight(rec.exercise.id)}
+      >
+        {highlightedIds.has(rec.exercise.id) ? '★' : '☆'}
+      </button>
+    </div>
+    <div class="metrics">
+      {#each Object.entries(rec.metrics) as [label, progression]}
+        {@const current = progression[progression.length - 1]}
+        <div class="metric">
+          <span class="metric-label">{label}</span>
+          <span class="metric-value">{formatValue(label, current)}</span>
+          <span class="metric-date">{formatDate(current.date)}</span>
+          {#if progression.length > 1}
+            <Accordion summary={`History (${progression.length - 1} previous)`}>
+              <ul class="history">
+                {#each [...progression.slice(0, -1)].reverse() as prev}
+                  <li>
+                    {formatValue(label, prev)}
+                    <span class="muted">— {formatDate(prev.date)}</span>
+                  </li>
+                {/each}
+              </ul>
+            </Accordion>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  </Card>
+{/snippet}
 
 {#if loading}
   <p class="muted">Loading…</p>
@@ -89,37 +160,23 @@
       </Card>
     {/if}
 
+    {#if highlightedRecords.length > 0}
+      <h2 class="section-title">Highlighted PRs</h2>
+      {#each highlightedRecords as rec (rec.exercise.id)}
+        {@render recordCard(rec)}
+      {/each}
+    {/if}
+
     <h2 class="section-title">Personal records</h2>
     {#if records.length === 0}
       <p class="muted">
         No records yet — they're computed automatically from completed workouts.
       </p>
+    {:else if otherRecords.length === 0}
+      <p class="muted">All your records are highlighted above.</p>
     {:else}
-      {#each records as rec (rec.exercise.id)}
-        <Card title={rec.exercise.name}>
-          <div class="metrics">
-            {#each Object.entries(rec.metrics) as [label, progression]}
-              {@const current = progression[progression.length - 1]}
-              <div class="metric">
-                <span class="metric-label">{label}</span>
-                <span class="metric-value">{formatValue(label, current)}</span>
-                <span class="metric-date">{formatDate(current.date)}</span>
-                {#if progression.length > 1}
-                  <Accordion summary={`History (${progression.length - 1} previous)`}>
-                    <ul class="history">
-                      {#each [...progression.slice(0, -1)].reverse() as prev}
-                        <li>
-                          {formatValue(label, prev)}
-                          <span class="muted">— {formatDate(prev.date)}</span>
-                        </li>
-                      {/each}
-                    </ul>
-                  </Accordion>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </Card>
+      {#each otherRecords as rec (rec.exercise.id)}
+        {@render recordCard(rec)}
       {/each}
     {/if}
   </div>
@@ -130,6 +187,36 @@
     display: flex;
     gap: var(--space-2);
     margin-top: var(--space-3);
+  }
+
+  .rec-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+
+  .rec-name {
+    font-size: var(--font-size-lg);
+  }
+
+  .star {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: var(--font-size-xl);
+    line-height: 1;
+    color: var(--text-muted-color);
+    padding: var(--space-1);
+  }
+
+  .star:hover {
+    color: var(--color-primary);
+  }
+
+  .star.active {
+    color: var(--color-primary);
   }
 
   .metrics {

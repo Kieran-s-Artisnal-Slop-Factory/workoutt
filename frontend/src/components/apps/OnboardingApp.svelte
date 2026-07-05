@@ -35,6 +35,7 @@
       'user_profile',
       withSyncFields({
         name: name.trim() || null,
+        highlighted_exercise_ids: [],
         display_weight_unit: weightUnit,
         display_distance_unit: distanceUnit,
         age_years: age === '' ? null : Number(age),

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { all, put, softDelete, withSyncFields } from '../../lib/db/repo';
   import { BODY_PARTS, MEASUREMENT_TYPES } from '../../lib/db/types';
-  import type { BodyPart, Exercise, MeasurementType } from '../../lib/db/types';
+  import type { BodyPart, Exercise, MeasurementType, UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
   import ChipFilter from '../ChipFilter.svelte';
 
@@ -99,6 +99,14 @@
   async function remove(e: Exercise) {
     if (!confirm(`Delete "${e.name}"? Past workouts that used it keep their data.`)) return;
     await softDelete('exercises', e.id);
+    // Cascade: a deleted exercise can't stay pinned in Highlighted PRs.
+    const profile = (await all<UserProfile>('user_profile'))[0];
+    if (profile?.highlighted_exercise_ids?.includes(e.id)) {
+      await put('user_profile', {
+        ...profile,
+        highlighted_exercise_ids: profile.highlighted_exercise_ids.filter((id) => id !== e.id),
+      });
+    }
     await refresh();
   }
 

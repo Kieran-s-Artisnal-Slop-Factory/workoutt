@@ -7,12 +7,27 @@
   import type { UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
 
+  type Theme = 'system' | 'light' | 'dark';
+
   let loading = $state(true);
   let profile: UserProfile | undefined = $state();
   let persistState: PersistState | 'unknown' = $state('unknown');
   let message = $state('');
+  let theme: Theme = $state('system');
+
+  function applyTheme() {
+    if (theme === 'system') {
+      localStorage.removeItem('workoutt-theme');
+      document.documentElement.style.colorScheme = '';
+    } else {
+      localStorage.setItem('workoutt-theme', theme);
+      document.documentElement.style.colorScheme = theme;
+    }
+  }
 
   onMount(async () => {
+    const stored = localStorage.getItem('workoutt-theme');
+    theme = stored === 'light' || stored === 'dark' ? stored : 'system';
     profile = (await all<UserProfile>('user_profile'))[0];
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
@@ -106,6 +121,15 @@
         <p class="muted">No profile yet — <a href="/onboarding/">run onboarding</a>.</p>
       </Card>
     {/if}
+
+    <Card title="Appearance">
+      <label for="set-theme">Theme</label>
+      <select id="set-theme" bind:value={theme} onchange={applyTheme}>
+        <option value="system">System (follow OS setting)</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </Card>
 
     <Card title="Storage">
       {#if persistState === 'granted'}

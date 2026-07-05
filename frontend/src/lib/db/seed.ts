@@ -29,6 +29,7 @@ export async function seedSampleData(): Promise<string> {
       'user_profile',
       withSyncFields({
         name: null,
+        highlighted_exercise_ids: [],
         display_weight_unit: 'kg' as const,
         display_distance_unit: 'km' as const,
         age_years: 30,

@@ -29,6 +29,9 @@
 CREATE TABLE user_profile (
     id                       TEXT PRIMARY KEY,
     name                     TEXT,  -- used for the personal greeting
+    highlighted_exercise_ids TEXT NOT NULL DEFAULT '[]',  -- JSON array of exercise ids
+                                   -- pinned to the "Highlighted PRs" section;
+                                   -- deleting an exercise removes its id here
     display_weight_unit      TEXT NOT NULL DEFAULT 'kg'
                              CHECK (display_weight_unit IN ('kg', 'lbs')),
     display_distance_unit    TEXT NOT NULL DEFAULT 'km'
