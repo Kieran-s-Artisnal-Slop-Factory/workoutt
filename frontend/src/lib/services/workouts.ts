@@ -206,6 +206,64 @@ export async function startProgram(
   return program;
 }
 
+/** Explicitly skip a workout: it never reschedules and is recorded as skipped. */
+export async function skipWorkout(workout: Workout): Promise<void> {
+  await put('workouts', { ...workout, state: 'skipped' });
+}
+
+/**
+ * Bump handling (Phase 2): if any scheduled workout's day has passed, all
+ * remaining scheduled workouts of the active program are re-laid out over
+ * the preferred-day sequence starting today, keeping their order — the
+ * missed one moves to the next available day and the rest shift as needed.
+ * Workouts that no longer fit before the program's end date are marked
+ * skipped (bumping never extends the program).
+ *
+ * Returns true if anything changed. Call on app load before reading the
+ * schedule.
+ */
+export async function applyBumps(): Promise<boolean> {
+  const program = await getActiveProgram();
+  if (!program) return false;
+
+  const today = todayLocal();
+  const remaining = (await byIndex<Workout>('workouts', 'program_id', program.id))
+    .filter((w) => w.state === 'scheduled' && w.scheduled_on)
+    .sort((a, b) => a.scheduled_on!.localeCompare(b.scheduled_on!));
+  if (!remaining.some((w) => w.scheduled_on! < today)) return false;
+
+  // Candidate dates: the program's preferred days, from this week forward.
+  const days = [...program.preferred_days].sort((a, b) => a - b);
+  const perWeek = Math.min(program.frequency_per_week, days.length || 7);
+  const weekStart = addDays(today, -dayOfWeek(today));
+  const dates: string[] = [];
+  for (let week = 0; dates.length < remaining.length && week < 520; week++) {
+    for (let d = 0; d < perWeek; d++) {
+      const date = addDays(weekStart, week * 7 + (days[d] ?? d));
+      if (date >= today) dates.push(date);
+    }
+  }
+
+  let changed = false;
+  for (const [i, workout] of remaining.entries()) {
+    const date = dates[i];
+    if (date === undefined || date > program.ends_on) {
+      await put('workouts', { ...workout, state: 'skipped' });
+      changed = true;
+      continue;
+    }
+    if (workout.scheduled_on !== date) {
+      await put('workouts', {
+        ...workout,
+        scheduled_on: date,
+        original_scheduled_on: workout.original_scheduled_on ?? workout.scheduled_on,
+      });
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 export async function abandonProgram(program: Program): Promise<void> {
   // Remove its remaining scheduled workouts; completed history stays.
   const workouts = await byIndex<Workout>('workouts', 'program_id', program.id);

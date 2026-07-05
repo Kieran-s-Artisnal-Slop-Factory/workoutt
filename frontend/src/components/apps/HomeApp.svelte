@@ -7,6 +7,8 @@
     programProgress,
     startWorkout,
     startAdhocWorkout,
+    applyBumps,
+    skipWorkout,
   } from '../../lib/services/workouts';
   import { recentPRs, type RecentPR } from '../../lib/services/records';
   import { formatRecordValue } from '../../lib/utils/records-format';
@@ -59,6 +61,8 @@
       return;
     }
     greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)](profile.name ?? null);
+    // Reschedule anything that was missed before showing the week.
+    await applyBumps();
     await refresh();
     loading = false;
   });
@@ -99,6 +103,15 @@
     busy = true;
     if (nextWorkout.state === 'scheduled') await startWorkout($state.snapshot(nextWorkout) as Workout);
     location.href = `/workout/?id=${nextWorkout.id}`;
+  }
+
+  async function skipNext() {
+    if (!nextWorkout || busy) return;
+    if (!confirm(`Skip ${nextWorkout.name}? It won't be rescheduled.`)) return;
+    busy = true;
+    await skipWorkout($state.snapshot(nextWorkout) as Workout);
+    busy = false;
+    await refresh();
   }
 
   async function startAdhoc() {
@@ -206,9 +219,14 @@
               <span class="badge">bumped</span>
             {/if}
           </p>
-          <button class="btn btn-primary" style="margin-top: var(--space-3);" onclick={startNext} disabled={busy}>
-            {nextWorkout.state === 'in_progress' ? 'Resume workout' : 'Start workout'}
-          </button>
+          <div class="next-actions">
+            <button class="btn btn-primary" onclick={startNext} disabled={busy}>
+              {nextWorkout.state === 'in_progress' ? 'Resume workout' : 'Start workout'}
+            </button>
+            {#if nextWorkout.state === 'scheduled'}
+              <button class="btn" onclick={skipNext} disabled={busy}>Skip</button>
+            {/if}
+          </div>
         {:else}
           <p class="muted">No workout scheduled.</p>
           {#if templates.length > 0}
@@ -379,6 +397,12 @@
   .adhoc {
     display: flex;
     gap: var(--space-2);
+  }
+
+  .next-actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
   }
 
   .week-hint {

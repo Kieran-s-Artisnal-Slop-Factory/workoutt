@@ -21,6 +21,9 @@ const currentPath = Astro.url.pathname;
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <meta name="description" content="Workoutt — workout tracker and planner" />
+    <meta name="theme-color" content="#ff7a1a" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>{title} · Workoutt</title>
     <script is:inline>
       // Apply the manual theme override before first paint to avoid a flash.
@@ -39,5 +42,12 @@ const currentPath = Astro.url.pathname;
       <slot />
     </main>
     {!hideFab && <FabNav client:load />}
+    <script is:inline>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

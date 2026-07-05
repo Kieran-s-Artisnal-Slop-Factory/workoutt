@@ -121,15 +121,15 @@ This project is a workout tracker and planner. The primary features are:
 ## Phase 2
 
 - [ ] Frontend
-    - [ ] Program scheduling logic: generate the schedule from frequency + preferred days, implement bump/skip handling and workout instance states
+    - [x] Program scheduling logic: generate the schedule from frequency + preferred days, implement bump/skip handling and workout instance states
     - [x] Weight tracking entry + history chart
     - [ ] Polish onboarding (validation, editing preferences later from a settings page)
 
 ## Phase 3
 
 - [ ] Frontend
-    - [ ] Make app an installable PWA (service worker, manifest, asset caching)
-        - [ ] App already works fully offline (IndexedDB is the source of truth); the PWA work is installability + caching + a "not currently syncing" indicator
+    - [x] Make app an installable PWA (service worker, manifest, asset caching)
+        - [x] App already works fully offline (IndexedDB is the source of truth); the PWA work is installability + caching + a "not currently syncing" indicator
     - [ ] Add syncing system
         - [ ] Push: send all locally created/modified rows since the last successful push; the server resolves conflicts by `updated_at` last-write-wins, stamps each accepted row with the next `server_seq`, and returns the assigned sequence numbers for the client to store
         - [ ] Pull: request all rows with `server_seq` greater than the client's stored high-water mark; apply them locally (tombstone rows delete their local counterparts) and advance the mark

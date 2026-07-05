@@ -1,6 +1,21 @@
 <script>
+  import { onMount } from 'svelte';
+
   let { currentPath = '/' } = $props();
   let open = $state(false);
+  let online = $state(true);
+
+  onMount(() => {
+    online = navigator.onLine;
+    const goOnline = () => (online = true);
+    const goOffline = () => (online = false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  });
 
   const links = [
     { href: '/', label: 'Home' },
@@ -17,6 +32,12 @@
 
 <header class="navbar">
   <a class="brand" href="/">work<span>outt</span></a>
+
+  {#if !online}
+    <span class="offline-badge" title="You're offline — everything keeps working from this device">
+      offline
+    </span>
+  {/if}
 
   <button
     class="hamburger"
@@ -68,6 +89,16 @@
 
   .brand span {
     color: var(--color-primary);
+  }
+
+  .offline-badge {
+    background: var(--color-warning);
+    color: var(--bg-color);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    margin-right: auto;
   }
 
   nav {
