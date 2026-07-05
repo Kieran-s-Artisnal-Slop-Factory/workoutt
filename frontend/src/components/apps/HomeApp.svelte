@@ -107,7 +107,7 @@
 
   async function skipNext() {
     if (!nextWorkout || busy) return;
-    if (!confirm(`Skip ${nextWorkout.name}? It won't be rescheduled.`)) return;
+    if (!confirm(`Skip ${nextWorkout.name}? It won't be rescheduled. To reschedule drag workout to new date on the homepage.`)) return;
     busy = true;
     await skipWorkout($state.snapshot(nextWorkout) as Workout);
     busy = false;
