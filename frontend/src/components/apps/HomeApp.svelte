@@ -271,16 +271,28 @@
 
     {#if prs.length > 0}
       <Card title="Recent PRs">
-        <ul class="pr-list">
-          {#each prs as pr}
-            <li>
-              <span class="pr-exercise">{pr.exercise.name}</span>
-              <span class="pr-metric muted">{pr.label}</span>
-              <span class="pr-value">{formatRecordValue(pr.label, pr.entry, wu, du)}</span>
-              <span class="pr-date muted">{formatDate(pr.entry.date)}</span>
-            </li>
-          {/each}
-        </ul>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Exercise</th>
+                <th>Metric</th>
+                <th>Value</th>
+                <th class="pr-date-col">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each prs as pr}
+                <tr>
+                  <td class="pr-exercise">{pr.exercise.name}</td>
+                  <td class="muted">{pr.label}</td>
+                  <td class="pr-value">{formatRecordValue(pr.label, pr.entry, wu, du)}</td>
+                  <td class="muted pr-date-col">{formatDate(pr.entry.date)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
         <a class="btn" href="/records/" style="margin-top: var(--space-3);">All records</a>
       </Card>
     {/if}
@@ -420,52 +432,25 @@
     cursor: grabbing;
   }
 
-  .pr-list {
-    list-style: none;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .pr-list li {
-    display: grid;
-    grid-template-columns: 1fr auto auto auto;
-    gap: var(--space-3);
-    align-items: baseline;
-  }
-
   .pr-exercise {
     font-weight: 700;
-  }
-
-  .pr-metric,
-  .pr-date {
-    font-size: var(--font-size-sm);
   }
 
   .pr-value {
     font-weight: 800;
     color: var(--color-primary-strong);
+    white-space: nowrap;
+  }
+
+  .pr-date-col {
+    text-align: right;
+    white-space: nowrap;
   }
 
   @media (max-width: 40rem) {
     .week {
       grid-template-columns: repeat(7, minmax(4.5rem, 1fr));
       overflow-x: auto;
-    }
-
-    .pr-list li {
-      grid-template-columns: 1fr auto;
-    }
-
-    .pr-metric {
-      order: 3;
-    }
-
-    .pr-date {
-      order: 4;
-      justify-self: end;
     }
   }
 </style>

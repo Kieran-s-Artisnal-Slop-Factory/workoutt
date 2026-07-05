@@ -89,7 +89,7 @@
       </Card>
     {/if}
 
-    <h2>Personal records</h2>
+    <h2 class="section-title">Personal records</h2>
     {#if records.length === 0}
       <p class="muted">
         No records yet — they're computed automatically from completed workouts.

@@ -41,6 +41,7 @@
 
   let showForm = $state(false);
   let editingId: string | null = $state(null);
+  let expandedTemplateId: string | null = $state(null);
   let fName = $state('');
   let fDescription = $state('');
   let fRows: FormRow[] = $state([]);
@@ -443,39 +444,86 @@
     </Card>
   {/if}
 
-  <h2 style="margin-bottom: var(--space-3);">Templates</h2>
+  <h2 class="section-title" style="margin-bottom: var(--space-3);">Templates</h2>
   {#if templates.length === 0}
     <p class="muted">No templates yet.</p>
   {:else}
-    <div class="stack" style="margin-bottom: var(--space-5);">
-      {#each templates as t (t.id)}
-        <Accordion summary={t.name}>
-          {@render bodyPartChips(templateBodyParts(t.id))}
-          {#if t.description}
-            <p class="muted" style="margin: var(--space-2) 0;">{t.description}</p>
-          {/if}
-          <ul class="exercise-list">
-            {#each rowsFor(t.id) as te}
-              <li>
-                <strong>{exerciseById.get(te.exercise_id)?.name ?? 'Unknown exercise'}</strong>
-                — {describeTarget(te)}
-                {#if te.superset_group != null}
-                  <span class="ss-badge">Superset {te.superset_group}</span>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-          <div class="form-actions">
-            <button class="btn btn-primary" onclick={() => startNow(t)} disabled={busy}>Start now</button>
-            <button class="btn" onclick={() => openEdit(t)}>Edit</button>
-            <button class="btn btn-danger" onclick={() => removeTemplate(t)}>Delete</button>
-          </div>
-        </Accordion>
-      {/each}
+    <div class="table-wrap" style="margin-bottom: var(--space-5);">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Template</th>
+            <th>Body parts</th>
+            <th>Exercises</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each templates as t (t.id)}
+            <tr
+              class="clickable"
+              aria-expanded={expandedTemplateId === t.id}
+              tabindex="0"
+              onclick={() => (expandedTemplateId = expandedTemplateId === t.id ? null : t.id)}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') expandedTemplateId = expandedTemplateId === t.id ? null : t.id;
+              }}
+            >
+              <td><strong>{t.name}</strong></td>
+              <td>{@render bodyPartChips(templateBodyParts(t.id))}</td>
+              <td class="muted">{rowsFor(t.id).length}</td>
+              <td class="actions-cell">
+                <button
+                  class="btn btn-primary"
+                  disabled={busy}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    startNow(t);
+                  }}>Start</button
+                >
+                <button
+                  class="btn"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    openEdit(t);
+                  }}>Edit</button
+                >
+                <button
+                  class="btn btn-danger"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    removeTemplate(t);
+                  }}>Delete</button
+                >
+              </td>
+            </tr>
+            {#if expandedTemplateId === t.id}
+              <tr class="detail-row">
+                <td colspan="4">
+                  {#if t.description}
+                    <p class="muted" style="margin-bottom: var(--space-2);">{t.description}</p>
+                  {/if}
+                  <ul class="exercise-list">
+                    {#each rowsFor(t.id) as te}
+                      <li>
+                        <strong>{exerciseById.get(te.exercise_id)?.name ?? 'Unknown exercise'}</strong>
+                        — {describeTarget(te)}
+                        {#if te.superset_group != null}
+                          <span class="ss-badge">Superset {te.superset_group}</span>
+                        {/if}
+                      </li>
+                    {/each}
+                  </ul>
+                </td>
+              </tr>
+            {/if}
+          {/each}
+        </tbody>
+      </table>
     </div>
   {/if}
 
-  <h2 style="margin-bottom: var(--space-3);">History</h2>
+  <h2 class="section-title" style="margin-bottom: var(--space-3);">History</h2>
   {#if history.length === 0}
     <p class="muted">No completed workouts yet.</p>
   {:else}
@@ -630,5 +678,15 @@
     gap: var(--space-2);
     justify-content: flex-end;
     flex-wrap: wrap;
+  }
+
+  .actions-cell {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .actions-cell button {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-sm);
   }
 </style>

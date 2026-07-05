@@ -4,7 +4,6 @@
   import { BODY_PARTS, MEASUREMENT_TYPES } from '../../lib/db/types';
   import type { BodyPart, Exercise, MeasurementType } from '../../lib/db/types';
   import Card from '../Card.svelte';
-  import Accordion from '../Accordion.svelte';
 
   const MEASUREMENT_LABELS: Record<MeasurementType, string> = {
     reps: 'Reps only',
@@ -22,6 +21,7 @@
 
   let showForm = $state(false);
   let editingId: string | null = $state(null);
+  let expandedId: string | null = $state(null);
   let fName = $state('');
   let fParts: BodyPart[] = $state([]);
   let fType: MeasurementType = $state('weight_reps');
@@ -179,36 +179,79 @@
       : 'Nothing matches your search.'}
   </p>
 {:else}
-  <div class="stack">
-    {#each filtered as exercise (exercise.id)}
-      <Accordion summary={exercise.name}>
-        <div class="chips" style="margin-bottom: var(--space-2);">
-          {#each exercise.body_parts as part}
-            <span class="chip selected">{part.replace('_', ' ')}</span>
-          {/each}
-          <span class="chip">{MEASUREMENT_LABELS[exercise.measurement_type]}</span>
-        </div>
-        {#if exercise.description}
-          <p style="margin-bottom: var(--space-2);">{exercise.description}</p>
-        {/if}
-        {#if exercise.video_url}
-          <p style="margin-bottom: var(--space-2);">
-            <a href={exercise.video_url} target="_blank" rel="noopener">Watch how-to video ↗</a>
-          </p>
-        {/if}
-        {#if exercise.image_urls.length > 0}
-          <div class="images">
-            {#each exercise.image_urls as url}
-              <img src={url} alt={`${exercise.name} example`} loading="lazy" />
-            {/each}
-          </div>
-        {/if}
-        <div class="form-actions">
-          <button class="btn" onclick={() => openEdit(exercise)}>Edit</button>
-          <button class="btn btn-danger" onclick={() => remove(exercise)}>Delete</button>
-        </div>
-      </Accordion>
-    {/each}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Exercise</th>
+          <th>Body parts</th>
+          <th>Measurement</th>
+          <th class="actions-head"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each filtered as exercise (exercise.id)}
+          <tr
+            class="clickable"
+            aria-expanded={expandedId === exercise.id}
+            tabindex="0"
+            onclick={() => (expandedId = expandedId === exercise.id ? null : exercise.id)}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') expandedId = expandedId === exercise.id ? null : exercise.id;
+            }}
+          >
+            <td><strong>{exercise.name}</strong></td>
+            <td>
+              <div class="chips">
+                {#each exercise.body_parts as part}
+                  <span class="chip selected">{part.replace('_', ' ')}</span>
+                {/each}
+              </div>
+            </td>
+            <td class="muted">{MEASUREMENT_LABELS[exercise.measurement_type]}</td>
+            <td class="actions-cell">
+              <button
+                class="btn"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  openEdit(exercise);
+                }}>Edit</button
+              >
+              <button
+                class="btn btn-danger"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  remove(exercise);
+                }}>Delete</button
+              >
+            </td>
+          </tr>
+          {#if expandedId === exercise.id}
+            <tr class="detail-row">
+              <td colspan="4">
+                {#if exercise.description}
+                  <p style="margin-bottom: var(--space-2);">{exercise.description}</p>
+                {:else}
+                  <p class="muted" style="margin-bottom: var(--space-2);">No description.</p>
+                {/if}
+                {#if exercise.video_url}
+                  <p style="margin-bottom: var(--space-2);">
+                    <a href={exercise.video_url} target="_blank" rel="noopener">Watch how-to video ↗</a>
+                  </p>
+                {/if}
+                {#if exercise.image_urls.length > 0}
+                  <div class="images">
+                    {#each exercise.image_urls as url}
+                      <img src={url} alt={`${exercise.name} example`} loading="lazy" />
+                    {/each}
+                  </div>
+                {/if}
+              </td>
+            </tr>
+          {/if}
+        {/each}
+      </tbody>
+    </table>
   </div>
 {/if}
 
@@ -264,6 +307,16 @@
   .images img {
     max-height: 8rem;
     border-radius: var(--radius-md);
+  }
+
+  .actions-cell {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .actions-cell button {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-sm);
   }
 
   .form-actions {

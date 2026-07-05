@@ -38,6 +38,7 @@
 
   let showForm = $state(false);
   let editingId: string | null = $state(null);
+  let expandedTemplateId: string | null = $state(null);
   let fName = $state('');
   let fDescription = $state('');
   let fFrequency = $state(3);
@@ -380,36 +381,81 @@
       </Card>
     {/if}
 
-    <h2>Program templates</h2>
+    <h2 class="section-title">Program templates</h2>
     {#if programTemplates.length === 0}
       <p class="muted">No program templates yet.</p>
     {:else}
-      {#each programTemplates as t (t.id)}
-        <Accordion summary={t.name}>
-          {#if t.description}
-            <p class="muted" style="margin-bottom: var(--space-2);">{t.description}</p>
-          {/if}
-          <p style="margin-bottom: var(--space-2);">
-            {t.frequency_per_week}×/week for {t.duration_weeks} weeks on
-            {t.preferred_days.map((d) => WEEKDAYS_SHORT[d]).join(', ')}
-          </p>
-          <ol style="padding-left: var(--space-4); margin-bottom: var(--space-3);">
-            {#each rotationFor(t.id) as r}
-              <li>{wtById.get(r.workout_template_id)?.name ?? 'Unknown template'}</li>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Program</th>
+              <th>Schedule</th>
+              <th>Days</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each programTemplates as t (t.id)}
+              <tr
+                class="clickable"
+                aria-expanded={expandedTemplateId === t.id}
+                tabindex="0"
+                onclick={() => (expandedTemplateId = expandedTemplateId === t.id ? null : t.id)}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter') expandedTemplateId = expandedTemplateId === t.id ? null : t.id;
+                }}
+              >
+                <td><strong>{t.name}</strong></td>
+                <td class="muted">{t.frequency_per_week}×/wk · {t.duration_weeks} wks</td>
+                <td class="muted">{t.preferred_days.map((d) => WEEKDAYS_SHORT[d]).join(', ')}</td>
+                <td class="actions-cell">
+                  <button
+                    class="btn btn-primary"
+                    disabled={busy || !!activeProgram}
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      start(t);
+                    }}>Start</button
+                  >
+                  <button
+                    class="btn"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      openEdit(t);
+                    }}>Edit</button
+                  >
+                  <button
+                    class="btn btn-danger"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      removeTemplate(t);
+                    }}>Delete</button
+                  >
+                </td>
+              </tr>
+              {#if expandedTemplateId === t.id}
+                <tr class="detail-row">
+                  <td colspan="4">
+                    {#if t.description}
+                      <p class="muted" style="margin-bottom: var(--space-2);">{t.description}</p>
+                    {/if}
+                    <strong style="font-size: var(--font-size-sm);">Rotation</strong>
+                    <ol style="padding-left: var(--space-4);">
+                      {#each rotationFor(t.id) as r}
+                        <li>{wtById.get(r.workout_template_id)?.name ?? 'Unknown template'}</li>
+                      {/each}
+                    </ol>
+                  </td>
+                </tr>
+              {/if}
             {/each}
-          </ol>
-          <div class="form-actions">
-            <button class="btn btn-primary" onclick={() => start(t)} disabled={busy || !!activeProgram}>
-              Start program
-            </button>
-            <button class="btn" onclick={() => openEdit(t)}>Edit</button>
-            <button class="btn btn-danger" onclick={() => removeTemplate(t)}>Delete</button>
-          </div>
-        </Accordion>
-      {/each}
+          </tbody>
+        </table>
+      </div>
     {/if}
 
-    <h2>Past programs</h2>
+    <h2 class="section-title">Past programs</h2>
     {#if pastPrograms.length === 0}
       <p class="muted">No past programs yet.</p>
     {:else}
@@ -488,5 +534,15 @@
     gap: var(--space-2);
     justify-content: flex-end;
     flex-wrap: wrap;
+  }
+
+  .actions-cell {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .actions-cell button {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-sm);
   }
 </style>
