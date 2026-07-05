@@ -1,0 +1,27 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Card from '../components/Card.svelte';
+---
+
+<Layout title="Programs">
+  <div class="page-header">
+    <h1>Programs</h1>
+    <button class="btn btn-primary">New program template</button>
+  </div>
+
+  <div class="stack">
+    <Card title="Program templates">
+      <p class="muted">
+        A program template combines workout templates with a weekly frequency,
+        preferred days, and a program length.
+      </p>
+    </Card>
+
+    <Card title="Past programs">
+      <p class="muted">
+        Completed programs are kept here along with PRs achieved and weight
+        change during each one.
+      </p>
+    </Card>
+  </div>
+</Layout>

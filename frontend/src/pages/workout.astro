@@ -1,0 +1,20 @@
+---
+// Active workout page. Fully static build, so the workout instance id comes
+// from the query string (?id=...) and is read client-side by the island.
+import Layout from '../layouts/Layout.astro';
+import Card from '../components/Card.svelte';
+---
+
+<Layout title="Active workout" hideFab>
+  <div class="page-header">
+    <h1>Active workout</h1>
+  </div>
+
+  <Card>
+    <p class="muted">
+      The active workout flow lives here: step through exercises and sets,
+      record actual values as you go (persisted immediately), and finish or
+      abandon the session.
+    </p>
+  </Card>
+</Layout>

@@ -1,0 +1,33 @@
+---
+import '../styles/theme.css';
+import '../styles/global.css';
+import Navbar from '../components/Navbar.svelte';
+import FabNav from '../components/FabNav.svelte';
+
+interface Props {
+  title: string;
+  /** Hide the floating action button (e.g. during an active workout). */
+  hideFab?: boolean;
+}
+
+const { title, hideFab = false } = Astro.props;
+const currentPath = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="Workoutt — workout tracker and planner" />
+    <title>{title} · Workoutt</title>
+  </head>
+  <body>
+    <Navbar client:load {currentPath} />
+    <main class="page">
+      <slot />
+    </main>
+    {!hideFab && <FabNav client:load />}
+  </body>
+</html>

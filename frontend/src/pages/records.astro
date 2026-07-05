@@ -1,0 +1,24 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Card from '../components/Card.svelte';
+---
+
+<Layout title="Records">
+  <div class="page-header">
+    <h1>Records</h1>
+  </div>
+
+  <div class="stack">
+    <Card title="Personal records">
+      <p class="muted">
+        Current and previous PRs per exercise — when they were achieved and
+        what the values were. PRs are computed from your logged workout
+        history.
+      </p>
+    </Card>
+
+    <Card title="Body weight">
+      <p class="muted">Your body weight history and trend will chart here.</p>
+    </Card>
+  </div>
+</Layout>
