@@ -4,6 +4,8 @@
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData } from '../../lib/db/export';
   import { seedSampleData } from '../../lib/db/seed';
+  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, type SyncStatus } from '../../lib/sync';
+  import { formatTimestamp } from '../../lib/utils/dates';
   import type { UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
 
@@ -14,6 +16,9 @@
   let persistState: PersistState | 'unknown' = $state('unknown');
   let message = $state('');
   let theme: Theme = $state('system');
+  let syncUrl = $state('');
+  let syncStatus: SyncStatus = $state({ lastSyncAt: null, lastError: null });
+  let syncing = $state(false);
 
   function applyTheme() {
     if (theme === 'system') {
@@ -25,9 +30,27 @@
     }
   }
 
+  async function runSync() {
+    syncing = true;
+    const result = await syncNow();
+    syncing = false;
+    message = result.ok
+      ? `Synced: pushed ${result.pushed}, pulled ${result.pulled}.`
+      : `Sync failed: ${result.error}`;
+    syncStatus = await getSyncStatus();
+  }
+
+  function saveSyncUrl() {
+    setSyncUrl(syncUrl);
+    syncUrl = getSyncUrl();
+    message = 'Sync server saved.';
+  }
+
   onMount(async () => {
     const stored = localStorage.getItem('workoutt-theme');
     theme = stored === 'light' || stored === 'dark' ? stored : 'system';
+    syncUrl = getSyncUrl();
+    syncStatus = await getSyncStatus();
     profile = (await all<UserProfile>('user_profile'))[0];
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
@@ -146,6 +169,37 @@
           Request persistent storage
         </button>
       {/if}
+    </Card>
+
+    <Card title="Sync">
+      {#if syncStatus.lastError}
+        <p style="margin-bottom: var(--space-2);">
+          ⚠️ Not currently syncing — last attempt failed:
+          <span class="muted">{syncStatus.lastError}</span>
+        </p>
+      {:else if syncStatus.lastSyncAt}
+        <p style="margin-bottom: var(--space-2);">
+          ✅ Last synced {formatTimestamp(syncStatus.lastSyncAt)}.
+        </p>
+      {:else}
+        <p class="muted" style="margin-bottom: var(--space-2);">
+          Never synced. Syncing is optional — the app is fully functional
+          offline; a sync server just backs up your data and shares it across
+          devices.
+        </p>
+      {/if}
+      <div style="margin-bottom: var(--space-3);">
+        <label for="set-sync-url">Sync server URL (blank = same origin)</label>
+        <input
+          id="set-sync-url"
+          bind:value={syncUrl}
+          onchange={saveSyncUrl}
+          placeholder="e.g. http://192.168.1.10:8080"
+        />
+      </div>
+      <button class="btn btn-primary" onclick={runSync} disabled={syncing}>
+        {syncing ? 'Syncing…' : 'Sync now'}
+      </button>
     </Card>
 
     <Card title="Backup">

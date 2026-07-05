@@ -130,15 +130,15 @@ This project is a workout tracker and planner. The primary features are:
 - [ ] Frontend
     - [x] Make app an installable PWA (service worker, manifest, asset caching)
         - [x] App already works fully offline (IndexedDB is the source of truth); the PWA work is installability + caching + a "not currently syncing" indicator
-    - [ ] Add syncing system
-        - [ ] Push: send all locally created/modified rows since the last successful push; the server resolves conflicts by `updated_at` last-write-wins, stamps each accepted row with the next `server_seq`, and returns the assigned sequence numbers for the client to store
-        - [ ] Pull: request all rows with `server_seq` greater than the client's stored high-water mark; apply them locally (tombstone rows delete their local counterparts) and advance the mark
-        - [ ] Sync status indicator: show "not currently syncing" when offline or the server is unreachable
-- [ ] Backend
-    - [ ] Go server with sqlite mirror of the client schema (sqlc-managed)
-    - [ ] Sync endpoints: `POST /sync/push` (accept client rows, resolve conflicts by `updated_at` last-write-wins, stamp each accepted row with the next value from a single global `server_seq` counter, return the assigned values) and `GET /sync/pull?since=<server_seq>` (return all rows — including tombstones — with `server_seq` greater than `since`)
-    - [ ] Seeding system behind an environment variable flag for testing
-    - [ ] Server-side backup endpoint (download the sqlite DB file directly; complements the Phase 1 client-side JSON export)
+    - [x] Add syncing system
+        - [x] Push: send all locally created/modified rows since the last successful push; the server resolves conflicts by `updated_at` last-write-wins, stamps each accepted row with the next `server_seq`, and returns the assigned sequence numbers for the client to store
+        - [x] Pull: request all rows with `server_seq` greater than the client's stored high-water mark; apply them locally (tombstone rows delete their local counterparts) and advance the mark
+        - [x] Sync status indicator: show "not currently syncing" when offline or the server is unreachable (offline badge in navbar + sync status card in Settings)
+- [x] Backend
+    - [x] Go server with sqlite mirror of the client schema (NOTE: the sync engine uses plain database/sql with table metadata instead of sqlc — sync rows are schemaless JSON with booleans/arrays that don't map onto sqlc's sql.Null* types without per-table marshal glue; adopt sqlc if/when typed app queries appear server-side)
+    - [x] Sync endpoints: `POST /sync/push` (accept client rows, resolve conflicts by `updated_at` last-write-wins, stamp each accepted row with the next value from a single global `server_seq` counter, return the assigned values) and `GET /sync/pull?since=<server_seq>` (return all rows — including tombstones — with `server_seq` greater than `since`)
+    - [x] Seeding system behind an environment variable flag for testing (SEED=true)
+    - [x] Server-side backup endpoint (download the sqlite DB file directly; complements the Phase 1 client-side JSON export)
 
 
 ## Technical requirements
@@ -161,8 +161,8 @@ This project is a workout tracker and planner. The primary features are:
     * Go
     * Plain http library for routing, no framework
     * slog for logging
-    * sqlite DB to store data in
-    * sqlc for DB management
+    * sqlite DB to store data in (modernc.org/sqlite — pure Go, no cgo, so cross-compiles and runs on Alpine)
+    * sqlc for DB management (deviation: the generic sync engine uses database/sql + table metadata — see the Phase 3 backend note; revisit sqlc when the server grows typed queries)
     * No auth (single-user, self-hosted); if it's ever exposed publicly, put it behind a reverse proxy with basic auth
     * A seeding system and environment variable flag for testing that can be used to activate the seeding
 * Dockerize the setup so a single `docker compose up` command can be used to bring everything up

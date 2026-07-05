@@ -27,6 +27,11 @@ const MIGRATIONS: Migration[] = [
       }
     }
   },
+  // v2 — sync bookkeeping (cursor, timestamps). Deliberately NOT in STORES:
+  // it is never synced or included in backups.
+  (db) => {
+    db.createObjectStore('sync_meta', { keyPath: 'key' });
+  },
 ];
 
 export const DB_VERSION = MIGRATIONS.length;

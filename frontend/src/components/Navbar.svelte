@@ -6,6 +6,9 @@
   let online = $state(true);
 
   onMount(() => {
+    // Opportunistic background sync, throttled internally.
+    import('../lib/sync').then(({ maybeAutoSync }) => maybeAutoSync());
+
     online = navigator.onLine;
     const goOnline = () => (online = true);
     const goOffline = () => (online = false);
