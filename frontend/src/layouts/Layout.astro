@@ -40,6 +40,23 @@ const currentPath = Astro.url.pathname;
   <body>
     <Navbar client:load {currentPath} />
     <WarningBanner client:load />
+    <script>
+      // Onboarding gate: no page is usable until onboarding completes. Runs
+      // on every page (MPA). A read failure means damaged storage — send the
+      // user to onboarding, which offers best-effort recovery.
+      import { all } from '../lib/db/repo';
+      import type { UserProfile } from '../lib/db/types';
+
+      if (!location.pathname.startsWith('/onboarding')) {
+        try {
+          const profile = (await all<UserProfile>('user_profile'))[0];
+          if (!profile?.onboarding_completed_at) location.replace('/onboarding/');
+        } catch (err) {
+          console.error('[workoutt] onboarding check failed:', err);
+          location.replace('/onboarding/');
+        }
+      }
+    </script>
     <main class="page">
       <slot />
     </main>

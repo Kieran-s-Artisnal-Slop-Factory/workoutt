@@ -39,6 +39,20 @@ export async function downloadExport(): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Wipe every store, including sync bookkeeping. Developer-mode escape hatch —
+ * the caller is responsible for confirming with the user first.
+ */
+export async function clearAllData(): Promise<void> {
+  const db = await getDB();
+  const names = [...Object.keys(STORES), 'sync_meta'];
+  const tx = db.transaction(names, 'readwrite');
+  for (const name of names) {
+    tx.objectStore(name).clear();
+  }
+  await tx.done;
+}
+
 /** Replace the entire database contents with the backup's. */
 export async function importData(envelope: ExportEnvelope): Promise<void> {
   if (

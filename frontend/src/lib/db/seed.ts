@@ -100,13 +100,232 @@ export async function seedSampleData(): Promise<string> {
       measurement_type: 'distance_time' as const,
     }),
   };
-  await bulkPut('exercises', Object.values(ex));
+   const extraExercises = {
+    inclineBench: withSyncFields({
+      name: 'Incline Bench Press',
+      body_parts: ['chest', 'shoulders', 'triceps'],
+      description: 'Incline barbell bench press.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    dumbbellBench: withSyncFields({
+      name: 'Dumbbell Bench Press',
+      body_parts: ['chest', 'triceps'],
+      description: 'Flat dumbbell bench press.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    chestFly: withSyncFields({
+      name: 'Chest Fly',
+      body_parts: ['chest'],
+      description: 'Machine chest fly.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    cableCross: withSyncFields({
+      name: 'Cable Crossover',
+      body_parts: ['chest'],
+      description: 'Cable crossover.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    latPulldown: withSyncFields({
+      name: 'Lat Pulldown',
+      body_parts: ['lats', 'biceps'],
+      description: 'Wide-grip pulldown.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    seatedRow: withSyncFields({
+      name: 'Seated Cable Row',
+      body_parts: ['back', 'lats'],
+      description: 'Cable row.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    barbellRow: withSyncFields({
+      name: 'Barbell Row',
+      body_parts: ['back', 'lats'],
+      description: 'Bent-over row.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    dumbbellRow: withSyncFields({
+      name: 'Dumbbell Row',
+      body_parts: ['back', 'lats'],
+      description: 'Single-arm row.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    facePull: withSyncFields({
+      name: 'Face Pull',
+      body_parts: ['shoulders', 'traps'],
+      description: 'Cable face pull.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    curl: withSyncFields({
+      name: 'Barbell Curl',
+      body_parts: ['biceps'],
+      description: 'Standing curl.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    hammerCurl: withSyncFields({
+      name: 'Hammer Curl',
+      body_parts: ['biceps', 'forearms'],
+      description: 'Neutral grip curl.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    skullCrusher: withSyncFields({
+      name: 'Skull Crusher',
+      body_parts: ['triceps'],
+      description: 'EZ bar extension.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    pushdown: withSyncFields({
+      name: 'Tricep Pushdown',
+      body_parts: ['triceps'],
+      description: 'Cable pushdown.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    lateralRaise: withSyncFields({
+      name: 'Lateral Raise',
+      body_parts: ['shoulders'],
+      description: 'DB lateral raise.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    frontRaise: withSyncFields({
+      name: 'Front Raise',
+      body_parts: ['shoulders'],
+      description: 'DB front raise.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    legPress: withSyncFields({
+      name: 'Leg Press',
+      body_parts: ['quads', 'glutes'],
+      description: '45 degree leg press.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    rdl: withSyncFields({
+      name: 'Romanian Deadlift',
+      body_parts: ['hamstrings', 'glutes'],
+      description: 'Romanian deadlift.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    legCurl: withSyncFields({
+      name: 'Leg Curl',
+      body_parts: ['hamstrings'],
+      description: 'Machine leg curl.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    legExtension: withSyncFields({
+      name: 'Leg Extension',
+      body_parts: ['quads'],
+      description: 'Machine extension.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    calfRaise: withSyncFields({
+      name: 'Standing Calf Raise',
+      body_parts: ['calves'],
+      description: 'Standing calf raise.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    seatedCalf: withSyncFields({
+      name: 'Seated Calf Raise',
+      body_parts: ['calves'],
+      description: 'Seated calf raise.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'weight_reps' as const,
+    }),
+    hangingLegRaise: withSyncFields({
+      name: 'Hanging Leg Raise',
+      body_parts: ['core'],
+      description: 'Leg raises.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'reps' as const,
+    }),
+    russianTwist: withSyncFields({
+      name: 'Russian Twist',
+      body_parts: ['core'],
+      description: 'Weighted twist.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'reps' as const,
+    }),
+    bicycleCrunch: withSyncFields({
+      name: 'Bicycle Crunch',
+      body_parts: ['core'],
+      description: 'Alternating crunch.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'reps' as const,
+    }),
+    elliptical: withSyncFields({
+      name: 'Elliptical',
+      body_parts: ['cardio'],
+      description: 'Elliptical trainer.',
+      video_url: null,
+      image_urls: [],
+      measurement_type: 'distance_time' as const,
+    }),
+  };
+  await bulkPut('exercises', [
+    ...Object.values(ex),
+    ...Object.values(extraExercises),
+  ]);
+  
 
   // Workout templates.
   const push = withSyncFields({ name: 'Push Day', description: 'Chest, shoulders, triceps.' });
   const pull = withSyncFields({ name: 'Pull Day', description: 'Back and biceps.' });
   const legs = withSyncFields({ name: 'Leg Day', description: 'Squat-focused lower body.' });
+  const extraTemplates = [
+    withSyncFields({ name: 'Upper Body A', description: 'Upper body workout.' }),
+    withSyncFields({ name: 'Upper Body B', description: 'Upper body workout.' }),
+    withSyncFields({ name: 'Lower Body A', description: 'Lower body workout.' }),
+    withSyncFields({ name: 'Lower Body B', description: 'Lower body workout.' }),
+    withSyncFields({ name: 'Chest Focus', description: 'Chest emphasis.' }),
+    withSyncFields({ name: 'Back Focus', description: 'Back emphasis.' }),
+    withSyncFields({ name: 'Shoulder Day', description: 'Shoulders.' }),
+    withSyncFields({ name: 'Arm Day', description: 'Arms.' }),
+    withSyncFields({ name: 'Full Body A', description: 'Full body.' }),
+    withSyncFields({ name: 'Cardio & Core', description: 'Cardio and abs.' }),
+  ];
   await bulkPut('workout_templates', [push, pull, legs]);
+  await bulkPut('workout_templates', extraTemplates);
 
   const tmplExercises = [
     // Push: bench + OHP supersetted with plank finisher
@@ -132,7 +351,43 @@ export async function seedSampleData(): Promise<string> {
       target_distance_km: null,
     })
   );
+  const extraTemplateExercises:any[] = [];
+
+  extraTemplates.forEach((t, i) => {
+    const exercisePool = [
+      extraExercises.inclineBench,
+      extraExercises.latPulldown,
+      extraExercises.legPress,
+      extraExercises.lateralRaise,
+      extraExercises.curl,
+      extraExercises.pushdown,
+      extraExercises.elliptical,
+      extraExercises.hangingLegRaise,
+    ];
+
+    exercisePool.slice(0, 4).forEach((e, pos) => {
+      extraTemplateExercises.push(
+        withSyncFields({
+          workout_template_id: t.id,
+          exercise_id: e.id,
+          position: pos,
+          set_count: 3,
+          superset_group: null,
+          target_reps: e.measurement_type === 'distance_time' ? null : 10,
+          target_weight_kg:
+            e.measurement_type === 'weight_reps' ? 40 : null,
+          target_time_seconds:
+            e.measurement_type === 'distance_time' ? 900 : null,
+          target_distance_km:
+            e.measurement_type === 'distance_time' ? 3 : null,
+        })
+      );
+    });
+  });
+
+  await bulkPut('workout_template_exercises', extraTemplateExercises);
   await bulkPut('workout_template_exercises', tmplExercises);
+
 
   // Program template: PPL, 3×/week for 8 weeks (Mon/Wed/Fri).
   const ppl = withSyncFields({
@@ -142,6 +397,36 @@ export async function seedSampleData(): Promise<string> {
     duration_weeks: 8,
     preferred_days: [1, 3, 5],
   });
+    const upperLower = withSyncFields({
+    name: 'Upper / Lower',
+    description: '4 day split.',
+    frequency_per_week: 4,
+    duration_weeks: 10,
+    preferred_days: [1, 2, 4, 5],
+  });
+
+  const broSplit = withSyncFields({
+    name: 'Bro Split',
+    description: '5 day bodybuilding split.',
+    frequency_per_week: 5,
+    duration_weeks: 12,
+    preferred_days: [1, 2, 3, 4, 5],
+  });
+
+  await bulkPut('program_templates', [upperLower, broSplit]);
+
+  await bulkPut('program_template_workouts', [
+    withSyncFields({ program_template_id: upperLower.id, workout_template_id: extraTemplates[0].id, position: 0 }),
+    withSyncFields({ program_template_id: upperLower.id, workout_template_id: extraTemplates[2].id, position: 1 }),
+    withSyncFields({ program_template_id: upperLower.id, workout_template_id: extraTemplates[1].id, position: 2 }),
+    withSyncFields({ program_template_id: upperLower.id, workout_template_id: extraTemplates[3].id, position: 3 }),
+
+    withSyncFields({ program_template_id: broSplit.id, workout_template_id: extraTemplates[4].id, position: 0 }),
+    withSyncFields({ program_template_id: broSplit.id, workout_template_id: extraTemplates[5].id, position: 1 }),
+    withSyncFields({ program_template_id: broSplit.id, workout_template_id: extraTemplates[6].id, position: 2 }),
+    withSyncFields({ program_template_id: broSplit.id, workout_template_id: extraTemplates[7].id, position: 3 }),
+    withSyncFields({ program_template_id: broSplit.id, workout_template_id: legs.id, position: 4 }),
+  ]);
   await put('program_templates', ppl as ProgramTemplate);
   await bulkPut(
     'program_template_workouts',

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { all, put } from '../../lib/db/repo';
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
-  import { downloadExport, importData } from '../../lib/db/export';
+  import { downloadExport, importData, clearAllData } from '../../lib/db/export';
   import { seedSampleData } from '../../lib/db/seed';
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, type SyncStatus } from '../../lib/sync';
   import { formatTimestamp } from '../../lib/utils/dates';
@@ -19,6 +19,31 @@
   let syncUrl = $state('');
   let syncStatus: SyncStatus = $state({ lastSyncAt: null, lastError: null });
   let syncing = $state(false);
+
+  // Developer options are gated: the user must type the exact phrase once
+  // per browser session (sessionStorage, so it resets across sessions).
+  const DEV_MODE_KEY = 'workoutt-inDeveloperMode';
+  const DEV_PHRASE = 'I understand I can lose and corrupt my data by using these settings';
+  let inDeveloperMode = $state(false);
+  let showDevModal = $state(false);
+  let devPhraseInput = $state('');
+
+  function unlockDeveloperMode(e: SubmitEvent) {
+    e.preventDefault();
+    if (devPhraseInput.trim() !== DEV_PHRASE) return;
+    sessionStorage.setItem(DEV_MODE_KEY, '1');
+    inDeveloperMode = true;
+    showDevModal = false;
+    devPhraseInput = '';
+  }
+
+  async function clearData() {
+    if (!confirm('Delete ALL local data? This cannot be undone — export a backup first if in doubt.')) {
+      return;
+    }
+    await clearAllData();
+    location.href = '/onboarding/';
+  }
 
   function applyTheme() {
     if (theme === 'system') {
@@ -47,6 +72,7 @@
   }
 
   onMount(async () => {
+    inDeveloperMode = sessionStorage.getItem(DEV_MODE_KEY) === '1';
     const stored = localStorage.getItem('workoutt-theme');
     theme = stored === 'light' || stored === 'dark' ? stored : 'system';
     syncUrl = getSyncUrl();
@@ -217,12 +243,54 @@
     </Card>
 
     <Card title="Developer">
-      <p class="muted" style="margin-bottom: var(--space-3);">
-        Load sample exercises, templates, and history for trying the app out.
-      </p>
-      <button class="btn" onclick={runSeed}>Load sample data</button>
+      {#if !inDeveloperMode}
+        <p class="muted" style="margin-bottom: var(--space-3);">
+          Developer options can corrupt or destroy your data and are locked
+          until you confirm you understand the risk (asked once per session).
+        </p>
+        <button class="btn" onclick={() => (showDevModal = true)}>Unlock developer options</button>
+      {:else}
+        <p class="muted" style="margin-bottom: var(--space-3);">
+          Load sample data for trying the app out, or wipe everything on this
+          device (exports in the Backup section above are your only undo).
+        </p>
+        <div class="actions">
+          <button class="btn" onclick={runSeed}>Load sample data</button>
+          <button class="btn btn-danger" onclick={clearData}>Clear all data</button>
+        </div>
+      {/if}
     </Card>
   </div>
+
+  {#if showDevModal}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="dev-modal-title">
+      <div class="modal">
+        <h3 id="dev-modal-title">Unlock developer options</h3>
+        <p class="muted">To continue, type the following phrase exactly:</p>
+        <p class="phrase">“{DEV_PHRASE}”</p>
+        <form onsubmit={unlockDeveloperMode}>
+          <input
+            bind:value={devPhraseInput}
+            placeholder="Type the phrase here"
+            aria-label="Confirmation phrase"
+          />
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="btn"
+              onclick={() => {
+                showDevModal = false;
+                devPhraseInput = '';
+              }}>Cancel</button
+            >
+            <button type="submit" class="btn btn-primary" disabled={devPhraseInput.trim() !== DEV_PHRASE}>
+              Unlock
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -243,6 +311,43 @@
     border: 1px solid var(--color-primary);
     border-radius: var(--radius-md);
     padding: var(--space-2) var(--space-3);
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgb(0 0 0 / 0.5);
+    display: grid;
+    place-items: center;
+    z-index: 50;
+    padding: var(--space-4);
+  }
+
+  .modal {
+    background: var(--surface-raised-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-2);
+    padding: var(--space-5);
+    max-width: 34rem;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .phrase {
+    font-style: italic;
+    font-weight: 600;
+    border-left: 3px solid var(--color-warning);
+    padding-left: var(--space-3);
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: var(--space-2);
+    justify-content: flex-end;
+    margin-top: var(--space-3);
   }
 
   @media (max-width: 30rem) {

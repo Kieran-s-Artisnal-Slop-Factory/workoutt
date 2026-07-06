@@ -2,13 +2,26 @@
   import { onMount } from 'svelte';
   import { all, put, withSyncFields, nowIso } from '../../lib/db/repo';
   import { requestPersistentStorage } from '../../lib/db/persistence';
-  import { displayToKg } from '../../lib/utils/units';
+  import { testConnection, setSyncUrl, getSyncUrl } from '../../lib/sync';
+  import { displayToKg, kgToDisplay } from '../../lib/utils/units';
   import { todayLocal } from '../../lib/utils/dates';
-  import type { UserProfile, WeightUnit, DistanceUnit, ExperienceLevel } from '../../lib/db/types';
+  import type {
+    BodyWeightEntry,
+    UserProfile,
+    WeightUnit,
+    DistanceUnit,
+    ExperienceLevel,
+  } from '../../lib/db/types';
   import Card from '../Card.svelte';
+
+  const OFFLINE_HELP =
+    'While in this mode data is stored ONLY in the browser. Due to differences between browsers please do regular backups of your data via the export options in the settings page.';
+  const SYNC_HELP =
+    'This mode will synchronize data between your device and a server. See our documentation for details on server setup. (Please note you can still lose data if your information is synced offline according to the data retention policies of your browser.)';
 
   let loading = $state(true);
   let saving = $state(false);
+  let submitError = $state('');
 
   let name = $state('');
   let weightUnit: WeightUnit = $state('kg');
@@ -18,24 +31,89 @@
   let height: number | '' = $state('');
   let experience: ExperienceLevel = $state('beginner');
 
+  let mode: 'offline' | 'sync' = $state('offline');
+  let serverUrl = $state('');
+  let testing = $state(false);
+  let testResult: { ok: boolean; message: string } | null = $state(null);
+
+  // Partial state from a previous install (e.g. onboarding never finished,
+  // or manually damaged data): offer a best-effort recovery instead of
+  // silently overwriting.
+  let existing: UserProfile | undefined;
+  let hasPartialState = $state(false);
+  let recovered = $state(false);
+
   onMount(async () => {
-    const profiles = await all<UserProfile>('user_profile');
-    if (profiles[0]?.onboarding_completed_at) {
-      location.href = '/';
-      return;
+    try {
+      const profiles = await all<UserProfile>('user_profile');
+      if (profiles[0]?.onboarding_completed_at) {
+        location.href = '/';
+        return;
+      }
+      existing = profiles[0];
+      if (existing) {
+        hasPartialState = true;
+      } else {
+        // Profile missing but other data present also counts as partial state.
+        const [exercises, weights] = await Promise.all([
+          all('exercises'),
+          all<BodyWeightEntry>('body_weight_entries'),
+        ]);
+        hasPartialState = exercises.length > 0 || weights.length > 0;
+      }
+    } catch (err) {
+      // Damaged storage (e.g. a manually deleted store) — proceed as a fresh
+      // install; submitting may still fail, which we surface below.
+      console.error('[workoutt onboarding] could not inspect existing data:', err);
     }
     loading = false;
   });
 
+  /** Best-effort prefill from whatever survived. */
+  async function recover() {
+    try {
+      if (existing) {
+        name = existing.name ?? '';
+        weightUnit = existing.display_weight_unit ?? 'kg';
+        distanceUnit = existing.display_distance_unit ?? 'km';
+        age = existing.age_years ?? '';
+        height = existing.height_cm ?? '';
+        experience = existing.experience_level ?? 'beginner';
+      }
+      const weights = (await all<BodyWeightEntry>('body_weight_entries')).sort((a, b) =>
+        b.measured_on.localeCompare(a.measured_on)
+      );
+      if (weights[0]) {
+        currentWeight = Math.round(kgToDisplay(weights[0].weight_kg, weightUnit ?? 'kg') * 10) / 10;
+      }
+      const savedUrl = getSyncUrl();
+      if (savedUrl) {
+        mode = 'sync';
+        serverUrl = savedUrl;
+      }
+      recovered = true;
+    } catch (err) {
+      console.error('[workoutt onboarding] recovery failed:', err);
+      submitError = 'Could not recover previous settings — continuing with a blank form.';
+      recovered = true;
+    }
+  }
+
+  async function testServer() {
+    if (!serverUrl.trim()) return;
+    testing = true;
+    testResult = null;
+    testResult = await testConnection(serverUrl);
+    testing = false;
+  }
+
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     saving = true;
-
-    await put(
-      'user_profile',
-      withSyncFields({
+    submitError = '';
+    try {
+      const fields = {
         name: name.trim() || null,
-        highlighted_exercise_ids: [],
         display_weight_unit: weightUnit,
         display_distance_unit: distanceUnit,
         age_years: age === '' ? null : Number(age),
@@ -43,22 +121,37 @@
         experience_level: experience,
         weight_tracking_enabled: currentWeight !== '',
         onboarding_completed_at: nowIso(),
-      })
-    );
+      };
 
-    if (currentWeight !== '') {
-      await put(
-        'body_weight_entries',
-        withSyncFields({
-          weight_kg: displayToKg(Number(currentWeight), weightUnit),
-          measured_on: todayLocal(),
-        })
-      );
+      if (existing) {
+        // Merge into the surviving row: keeps its id (sync identity) and any
+        // fields onboarding doesn't manage (e.g. highlighted PRs).
+        await put('user_profile', { ...existing, ...fields });
+      } else {
+        await put('user_profile', withSyncFields({ ...fields, highlighted_exercise_ids: [] }));
+      }
+
+      if (currentWeight !== '') {
+        await put(
+          'body_weight_entries',
+          withSyncFields({
+            weight_kg: displayToKg(Number(currentWeight), weightUnit),
+            measured_on: todayLocal(),
+          })
+        );
+      }
+
+      setSyncUrl(mode === 'sync' ? serverUrl : '');
+
+      // Ask the browser to protect our data from eviction (result shown in Settings).
+      await requestPersistentStorage();
+      location.href = '/';
+    } catch (err) {
+      console.error('[workoutt onboarding] failed to save:', err);
+      submitError =
+        'Could not save your settings — local storage appears damaged. Try clearing site data for this app in your browser and reloading.';
+      saving = false;
     }
-
-    // Ask the browser to protect our data from eviction (result shown in Settings).
-    await requestPersistentStorage();
-    location.href = '/';
   }
 </script>
 
@@ -67,9 +160,22 @@
 {:else}
   <Card title="Welcome to Workoutt">
     <p class="muted" style="margin-bottom: var(--space-4);">
-      A few details to get set up. Everything is stored on this device — no
-      account needed.
+      A few details to get set up — no account needed.
     </p>
+
+    {#if hasPartialState && !recovered}
+      <div class="recover-notice">
+        <p>
+          We found data from a previous install that wasn't fully set up. You
+          can start onboarding with your last settings recovered (best effort).
+        </p>
+        <button type="button" class="btn" onclick={recover}>Recover previous settings</button>
+      </div>
+    {/if}
+
+    {#if submitError}
+      <p class="error-msg" role="alert">⚠️ {submitError}</p>
+    {/if}
 
     <form class="stack" onsubmit={submit}>
       <div>
@@ -127,6 +233,51 @@
         </div>
       </div>
 
+      <div>
+        <span class="field-label">Data storage</span>
+        <div class="mode-toggle">
+          <button
+            type="button"
+            class:active={mode === 'offline'}
+            aria-pressed={mode === 'offline'}
+            onclick={() => (mode = 'offline')}
+          >
+            Offline only
+          </button>
+          <button
+            type="button"
+            class:active={mode === 'sync'}
+            aria-pressed={mode === 'sync'}
+            onclick={() => (mode = 'sync')}
+          >
+            Sync mode
+          </button>
+        </div>
+        <p class="muted helptext">{mode === 'offline' ? OFFLINE_HELP : SYNC_HELP}</p>
+
+        {#if mode === 'sync'}
+          <label for="ob-server">Server URL</label>
+          <div class="server-row">
+            <input
+              id="ob-server"
+              type="url"
+              required
+              bind:value={serverUrl}
+              placeholder="e.g. http://192.168.1.10:8080"
+            />
+            <button type="button" class="btn" onclick={testServer} disabled={!serverUrl.trim() || testing}>
+              {testing ? 'Testing…' : 'Test connection'}
+            </button>
+          </div>
+          {#if testResult}
+            <p class={testResult.ok ? 'test-ok' : 'error-msg'} role="status">
+              {testResult.ok ? '✅' : '⚠️'}
+              {testResult.message}
+            </p>
+          {/if}
+        {/if}
+      </div>
+
       <button class="btn btn-primary" type="submit" disabled={saving}>
         {saving ? 'Saving…' : 'Get started'}
       </button>
@@ -139,6 +290,73 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--space-3);
+  }
+
+  .field-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    display: block;
+    margin-bottom: var(--space-1);
+  }
+
+  .mode-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    margin-bottom: var(--space-2);
+  }
+
+  .mode-toggle button {
+    border: none;
+    background: var(--surface-color);
+    padding: var(--space-2) var(--space-4);
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text-muted-color);
+  }
+
+  .mode-toggle button.active {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+  }
+
+  .helptext {
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-3);
+  }
+
+  .server-row {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .server-row input {
+    flex: 1;
+  }
+
+  .test-ok {
+    color: var(--color-success);
+    font-size: var(--font-size-sm);
+    margin-top: var(--space-2);
+  }
+
+  .error-msg {
+    color: var(--color-danger);
+    font-size: var(--font-size-sm);
+    margin-top: var(--space-2);
+  }
+
+  .recover-notice {
+    background: var(--color-primary-soft);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin-bottom: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: flex-start;
   }
 
   @media (max-width: 30rem) {

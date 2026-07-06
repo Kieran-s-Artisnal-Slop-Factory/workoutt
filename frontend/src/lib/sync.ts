@@ -42,6 +42,35 @@ export function setSyncUrl(url: string): void {
   else localStorage.removeItem(SYNC_URL_KEY);
 }
 
+/** Map an HTTP failure to a user-facing message; full details go to the console. */
+async function describeHttpError(phase: string, res: Response): Promise<string> {
+  const body = await res.text().catch(() => '');
+  const detail = `${res.status} ${res.statusText || 'error'}`;
+  console.error(`[workoutt sync] ${phase} failed: ${detail}`, body || '(no response body)');
+  if (res.status >= 500) {
+    return `Server experiencing errors, please contact your administrator with the following details: ${detail}`;
+  }
+  return `Cannot reach the sync server — check the server URL in Settings (${detail})`;
+}
+
+function describeNetworkError(phase: string, err: unknown): string {
+  console.error(`[workoutt sync] ${phase} failed:`, err);
+  return 'Cannot reach the sync server — check the server URL and that the server is running.';
+}
+
+/** Probe a server URL ( /healthz ) with the same error mapping as sync. */
+export async function testConnection(url: string): Promise<{ ok: boolean; message: string }> {
+  const base = url.trim().replace(/\/+$/, '');
+  let res: Response;
+  try {
+    res = await fetch(`${base}/healthz`);
+  } catch (err) {
+    return { ok: false, message: describeNetworkError('connection test', err) };
+  }
+  if (!res.ok) return { ok: false, message: await describeHttpError('connection test', res) };
+  return { ok: true, message: 'Connected to sync server successfully.' };
+}
+
 async function getMeta<T>(key: string): Promise<T | undefined> {
   const row = (await (await getDB()).get('sync_meta', key)) as { value: T } | undefined;
   return row?.value;
@@ -85,12 +114,17 @@ export async function syncNow(): Promise<SyncResult> {
       }
     }
 
-    const pushRes = await fetch(`${base}/sync/push`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows }),
-    });
-    if (!pushRes.ok) throw new Error(`push failed (${pushRes.status})`);
+    let pushRes: Response;
+    try {
+      pushRes = await fetch(`${base}/sync/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows }),
+      });
+    } catch (err) {
+      throw new Error(describeNetworkError('push', err));
+    }
+    if (!pushRes.ok) throw new Error(await describeHttpError('push', pushRes));
     const pushJson = (await pushRes.json()) as {
       accepted: { table: string; id: string; server_seq: number }[];
     };
@@ -107,8 +141,13 @@ export async function syncNow(): Promise<SyncResult> {
 
     // ---- pull
     const since = (await getMeta<number>('lastPullSeq')) ?? 0;
-    const pullRes = await fetch(`${base}/sync/pull?since=${since}`);
-    if (!pullRes.ok) throw new Error(`pull failed (${pullRes.status})`);
+    let pullRes: Response;
+    try {
+      pullRes = await fetch(`${base}/sync/pull?since=${since}`);
+    } catch (err) {
+      throw new Error(describeNetworkError('pull', err));
+    }
+    if (!pullRes.ok) throw new Error(await describeHttpError('pull', pullRes));
     const pullJson = (await pullRes.json()) as {
       rows: Record<string, SyncFields[]>;
       latestSeq: number;
