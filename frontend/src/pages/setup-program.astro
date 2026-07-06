@@ -1,0 +1,11 @@
+---
+import Layout from '../layouts/Layout.astro';
+import SetupProgramApp from '../components/apps/SetupProgramApp.svelte';
+---
+
+<Layout title="Program setup" hideFab>
+  <div class="page-header">
+    <h1>Program setup</h1>
+  </div>
+  <SetupProgramApp client:only="svelte" />
+</Layout>

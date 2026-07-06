@@ -4,7 +4,7 @@
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData, clearAllData } from '../../lib/db/export';
   import { seedSampleData } from '../../lib/db/seed';
-  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, type SyncStatus } from '../../lib/sync';
+  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
   import { formatTimestamp } from '../../lib/utils/dates';
   import type { UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
@@ -77,6 +77,7 @@
   function saveSyncUrl() {
     setSyncUrl(syncUrl);
     syncUrl = getSyncUrl();
+    if (syncUrl) setSyncMode('sync'); // configuring a server opts back into syncing
     message = 'Sync server saved.';
   }
 

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { all, put, withSyncFields, nowIso } from '../../lib/db/repo';
   import { requestPersistentStorage } from '../../lib/db/persistence';
-  import { testConnection, setSyncUrl, getSyncUrl, syncNow } from '../../lib/sync';
+  import { testConnection, setSyncUrl, getSyncUrl, setSyncMode, syncNow } from '../../lib/sync';
   import { displayToKg, kgToDisplay } from '../../lib/utils/units';
   import { todayLocal } from '../../lib/utils/dates';
   import type {
@@ -22,6 +22,7 @@
   let loading = $state(true);
   let saving = $state(false);
   let submitError = $state('');
+  let showProgramModal = $state(false);
 
   let name = $state('');
   let weightUnit: WeightUnit = $state('kg');
@@ -172,6 +173,7 @@
       }
 
       setSyncUrl(mode === 'sync' ? serverUrl : '');
+      setSyncMode(mode);
       if (mode === 'sync') {
         // First sync right away so any existing server data is here before
         // the homepage renders (also counts as this session's initial sync).
@@ -181,6 +183,15 @@
 
       // Ask the browser to protect our data from eviction (result shown in Settings).
       await requestPersistentStorage();
+
+      // Offer the guided program walkthrough — unless they already have
+      // program templates (e.g. recovered install or data pulled via sync).
+      const templates = await all('program_templates');
+      if (templates.length === 0) {
+        saving = false;
+        showProgramModal = true;
+        return;
+      }
       location.href = '/';
     } catch (err) {
       console.error('[workoutt onboarding] failed to save:', err);
@@ -337,6 +348,28 @@
       </button>
     </form>
   </Card>
+
+  {#if showProgramModal}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="program-modal-title">
+      <div class="modal">
+        <h3 id="program-modal-title">Want help setting up your first program?</h3>
+        <p class="muted">
+          We can walk you through it step by step — what exercises, workout
+          templates, and programs are, and how to build your own (or use the
+          classic Push / Pull / Legs split). It takes a couple of minutes and
+          you'll finish with workouts on your schedule.
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="btn" onclick={() => (location.href = '/')}>
+            Not now, take me home
+          </button>
+          <button type="button" class="btn btn-primary" onclick={() => (location.href = '/setup-program/')}>
+            Yes, walk me through it
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -434,6 +467,36 @@
     flex-direction: column;
     gap: var(--space-2);
     align-items: flex-start;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgb(0 0 0 / 0.5);
+    display: grid;
+    place-items: center;
+    z-index: 50;
+    padding: var(--space-4);
+  }
+
+  .modal {
+    background: var(--surface-raised-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-2);
+    padding: var(--space-5);
+    max-width: 32rem;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: var(--space-2);
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
 
   @media (max-width: 30rem) {

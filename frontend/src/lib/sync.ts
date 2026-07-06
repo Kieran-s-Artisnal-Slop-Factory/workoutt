@@ -36,6 +36,21 @@ export function getSyncUrl(): string {
   return localStorage.getItem(SYNC_URL_KEY) ?? '';
 }
 
+const SYNC_MODE_KEY = 'workoutt-sync-mode';
+
+/**
+ * 'offline' disables background sync entirely (chosen in onboarding).
+ * Absent/anything else means 'sync' — an empty URL then syncs same-origin,
+ * which is the correct default when the Go backend serves the frontend.
+ */
+export function getSyncMode(): 'offline' | 'sync' {
+  return localStorage.getItem(SYNC_MODE_KEY) === 'offline' ? 'offline' : 'sync';
+}
+
+export function setSyncMode(mode: 'offline' | 'sync'): void {
+  localStorage.setItem(SYNC_MODE_KEY, mode);
+}
+
 export function setSyncUrl(url: string): void {
   const trimmed = url.trim().replace(/\/+$/, '');
   if (trimmed) localStorage.setItem(SYNC_URL_KEY, trimmed);
@@ -192,6 +207,7 @@ export async function syncNow(): Promise<SyncResult> {
  */
 export function maybeAutoSync(): void {
   if (typeof navigator === 'undefined' || !navigator.onLine) return;
+  if (getSyncMode() === 'offline') return;
   const syncedThisSession = sessionStorage.getItem(SESSION_SYNC_KEY) === '1';
   const last = Number(localStorage.getItem(AUTO_SYNC_AT_KEY) ?? 0);
   if (syncedThisSession && Date.now() - last < AUTO_SYNC_INTERVAL_MS) return;

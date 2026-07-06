@@ -5,7 +5,7 @@
    * Dismissable for the rest of the browser session.
    */
   import { onMount } from 'svelte';
-  import { getSyncStatus, SYNC_EVENT } from '../lib/sync';
+  import { getSyncStatus, getSyncMode, SYNC_EVENT } from '../lib/sync';
 
   const DISMISS_KEY = 'workoutt-warnings-dismissed';
 
@@ -28,7 +28,7 @@
     }
 
     const status = await getSyncStatus();
-    if (status.lastError) {
+    if (getSyncMode() !== 'offline' && status.lastError) {
       next.push({
         id: 'sync',
         text: 'Not currently syncing — the sync server is unreachable, so this device holds the only copy of recent changes.',
