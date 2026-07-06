@@ -5,6 +5,9 @@
   import type { BodyPart, Exercise, MeasurementType, UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
   import ChipFilter from '../ChipFilter.svelte';
+  import Pagination from '../Pagination.svelte';
+
+  const PAGE_SIZE = 250;
 
   const MEASUREMENT_LABELS: Record<MeasurementType, string> = {
     reps: 'Reps only',
@@ -40,6 +43,16 @@
     )
   );
   const anyFilter = $derived(search !== '' || filterParts.length > 0 || filterTypes.length > 0);
+
+  let page = $state(0);
+  // Any filter change returns to the first page.
+  $effect(() => {
+    search;
+    filterParts;
+    filterTypes;
+    page = 0;
+  });
+  const paged = $derived(filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
 
   function clearAllFilters() {
     search = '';
@@ -215,7 +228,7 @@
         </tr>
       </thead>
       <tbody>
-        {#each filtered as exercise (exercise.id)}
+        {#each paged as exercise (exercise.id)}
           <tr
             class="clickable"
             aria-expanded={expandedId === exercise.id}
@@ -278,6 +291,7 @@
       </tbody>
     </table>
   </div>
+  <Pagination total={filtered.length} pageSize={PAGE_SIZE} bind:page label="exercises" />
 {/if}
 
 <style>

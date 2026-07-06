@@ -9,6 +9,9 @@
   import Card from '../Card.svelte';
   import Accordion from '../Accordion.svelte';
   import LineChart from '../LineChart.svelte';
+  import Pagination from '../Pagination.svelte';
+
+  const PAGE_SIZE = 45;
 
   let loading = $state(true);
   let records: ExerciseRecords[] = $state([]);
@@ -32,6 +35,11 @@
   const highlightedIds = $derived(new Set(profile?.highlighted_exercise_ids ?? []));
   const highlightedRecords = $derived(records.filter((r) => highlightedIds.has(r.exercise.id)));
   const otherRecords = $derived(records.filter((r) => !highlightedIds.has(r.exercise.id)));
+
+  // Pagination applies only to the non-highlighted list; highlighted PRs
+  // always show in full above.
+  let page = $state(0);
+  const pagedOtherRecords = $derived(otherRecords.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
 
   async function toggleHighlight(exerciseId: string) {
     if (!profile) return;
@@ -175,9 +183,10 @@
     {:else if otherRecords.length === 0}
       <p class="muted">All your records are highlighted above.</p>
     {:else}
-      {#each otherRecords as rec (rec.exercise.id)}
+      {#each pagedOtherRecords as rec (rec.exercise.id)}
         {@render recordCard(rec)}
       {/each}
+      <Pagination total={otherRecords.length} pageSize={PAGE_SIZE} bind:page label="records" />
     {/if}
   </div>
 {/if}

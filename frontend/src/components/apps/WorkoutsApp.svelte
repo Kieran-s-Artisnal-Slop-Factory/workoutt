@@ -19,6 +19,9 @@
   import Accordion from '../Accordion.svelte';
   import TimeInput from '../TimeInput.svelte';
   import ChipFilter from '../ChipFilter.svelte';
+  import Pagination from '../Pagination.svelte';
+
+  const HISTORY_PAGE_SIZE = 250;
 
   let loading = $state(true);
   let templates: WorkoutTemplate[] = $state([]);
@@ -61,6 +64,22 @@
       (a, b) => a - b
     )
   );
+  /** How many completed workouts came from each template. */
+  const completedByTemplate = $derived.by(() => {
+    const counts = new Map<string, number>();
+    for (const w of history) {
+      if (w.workout_template_id) {
+        counts.set(w.workout_template_id, (counts.get(w.workout_template_id) ?? 0) + 1);
+      }
+    }
+    return counts;
+  });
+
+  let historyPage = $state(0);
+  const pagedHistory = $derived(
+    history.slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE)
+  );
+
   const visibleTemplates = $derived(
     templates.filter(
       (t) =>
@@ -485,6 +504,7 @@
             <th>Template</th>
             <th>Body parts</th>
             <th>Exercises</th>
+            <th>Completed</th>
             <th></th>
           </tr>
         </thead>
@@ -502,6 +522,7 @@
               <td><strong>{t.name}</strong></td>
               <td data-label="Body parts">{@render bodyPartChips(templateBodyParts(t.id))}</td>
               <td class="muted" data-label="Exercises">{rowsFor(t.id).length}</td>
+              <td class="muted" data-label="Completed">{completedByTemplate.get(t.id) ?? 0}×</td>
               <td class="actions-cell">
                 <button
                   class="btn btn-primary"
@@ -529,7 +550,7 @@
             </tr>
             {#if expandedTemplateId === t.id}
               <tr class="detail-row">
-                <td colspan="4">
+                <td colspan="5">
                   {#if t.description}
                     <p class="muted" style="margin-bottom: var(--space-2);">{t.description}</p>
                   {/if}
@@ -559,7 +580,7 @@
     <p class="muted">No completed workouts yet.</p>
   {:else}
     <div class="stack">
-      {#each history as w (w.id)}
+      {#each pagedHistory as w (w.id)}
         <Accordion summary={`${w.name} — ${formatTimestamp(w.completed_at!)}`}>
           {@render bodyPartChips(historyBodyParts(w.id))}
           <div style="margin-top: var(--space-2);">
@@ -580,6 +601,12 @@
         </Accordion>
       {/each}
     </div>
+    <Pagination
+      total={history.length}
+      pageSize={HISTORY_PAGE_SIZE}
+      bind:page={historyPage}
+      label="workouts"
+    />
   {/if}
 {/if}
 

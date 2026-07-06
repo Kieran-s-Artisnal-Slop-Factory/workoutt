@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { all, put } from '../../lib/db/repo';
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
-  import { downloadExport, importData, clearAllData } from '../../lib/db/export';
+  import { downloadExport, importData, clearAllData, SCOPE_LABELS, type ExportScope } from '../../lib/db/export';
   import { seedSampleData } from '../../lib/db/seed';
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
   import { formatTimestamp } from '../../lib/utils/dates';
@@ -107,18 +107,39 @@
     persistState = await requestPersistentStorage();
   }
 
+  let exportScope: ExportScope = $state('templates_user');
+
   async function onImportFile(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    if (!confirm('Importing replaces ALL current data with the backup. Continue?')) {
+    let envelope: unknown;
+    try {
+      envelope = JSON.parse(await file.text());
+    } catch {
+      message = 'Import failed: that file is not valid JSON.';
+      input.value = '';
+      return;
+    }
+    // A full backup replaces everything; a templates-only file merges in and
+    // leaves your existing data alone — warn accordingly.
+    const isFull = (envelope as { scope?: string })?.scope !== 'templates';
+    const warning = isFull
+      ? 'This is a full backup — importing it REPLACES all current data. Continue?'
+      : 'Import these templates? They will be added to your existing data (nothing is deleted).';
+    if (!confirm(warning)) {
       input.value = '';
       return;
     }
     try {
-      await importData(JSON.parse(await file.text()));
-      message = 'Import complete. Reloading…';
-      location.reload();
+      const result = await importData(envelope as Parameters<typeof importData>[0]);
+      if (result.mode === 'replaced') {
+        message = 'Import complete. Reloading…';
+        location.reload();
+      } else {
+        message = `Imported ${result.rows} rows (templates merged in).`;
+        input.value = '';
+      }
     } catch (err) {
       message = `Import failed: ${err instanceof Error ? err.message : err}`;
       input.value = '';
@@ -245,15 +266,29 @@
     <Card title="Backup">
       <p class="muted" style="margin-bottom: var(--space-3);">
         Until sync ships, this device holds the only copy of your data. Export
-        a JSON backup regularly; import restores it (replacing everything).
+        a JSON backup regularly. Choose what to include:
+        <strong>Templates only</strong> gives you shareable exercises and
+        workout/program templates; <strong>Templates and user information</strong>
+        is a full backup with your profile, body weight, and workout history.
       </p>
+      <div style="margin-bottom: var(--space-3);">
+        <label for="set-export-scope">Export contents</label>
+        <select id="set-export-scope" bind:value={exportScope}>
+          <option value="templates_user">{SCOPE_LABELS.templates_user}</option>
+          <option value="templates">{SCOPE_LABELS.templates}</option>
+        </select>
+      </div>
       <div class="actions">
-        <button class="btn btn-primary" onclick={downloadExport}>Export backup</button>
+        <button class="btn btn-primary" onclick={() => downloadExport(exportScope)}>Export</button>
         <label class="btn" style="margin-bottom: 0;">
-          Import backup
+          Import
           <input type="file" accept="application/json" onchange={onImportFile} hidden />
         </label>
       </div>
+      <p class="muted" style="margin-top: var(--space-2); font-size: var(--font-size-sm);">
+        Import detects the file's type automatically: a full backup replaces
+        everything, a templates file merges in without touching your data.
+      </p>
     </Card>
 
     <Card title="Developer">
