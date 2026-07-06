@@ -3,6 +3,7 @@ import '../styles/theme.css';
 import '../styles/global.css';
 import Navbar from '../components/Navbar.svelte';
 import FabNav from '../components/FabNav.svelte';
+import WarningBanner from '../components/WarningBanner.svelte';
 
 interface Props {
   title: string;
@@ -38,16 +39,35 @@ const currentPath = Astro.url.pathname;
   </head>
   <body>
     <Navbar client:load {currentPath} />
+    <WarningBanner client:load />
     <main class="page">
       <slot />
     </main>
     {!hideFab && <FabNav client:load />}
-    <script is:inline>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
-        });
-      }
-    </script>
+    {
+      import.meta.env.PROD ? (
+        <script is:inline>
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+              navigator.serviceWorker.register('/sw.js').catch(() => {});
+            });
+          }
+        </script>
+      ) : (
+        <script is:inline>
+          // Dev: the service worker must NOT run — it caches Vite's module
+          // URLs and serves stale code after edits (blank pages). Unregister
+          // any leftover registration and drop its caches.
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((regs) => {
+              for (const reg of regs) reg.unregister();
+            });
+            if (window.caches) {
+              caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+            }
+          }
+        </script>
+      )
+    }
   </body>
 </html>

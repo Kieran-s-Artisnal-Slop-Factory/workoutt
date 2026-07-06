@@ -9,7 +9,12 @@
  *
  * Bump CACHE_VERSION to invalidate everything after a breaking change.
  */
-const CACHE_VERSION = 'workoutt-v1';
+const CACHE_VERSION = 'workoutt-v2';
+
+// Never cache dev-server module URLs — serving them stale breaks the app
+// after code changes. (The worker shouldn't be registered in dev at all,
+// but belt and braces.)
+const UNCACHEABLE = [/^\/src\//, /^\/@/, /^\/node_modules\//];
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -26,7 +31,9 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const request = event.request;
-  if (request.method !== 'GET' || new URL(request.url).origin !== location.origin) return;
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.origin !== location.origin) return;
+  if (UNCACHEABLE.some((re) => re.test(url.pathname))) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(

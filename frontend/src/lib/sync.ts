@@ -19,7 +19,11 @@ import type { SyncFields } from './db/types';
 
 const SYNC_URL_KEY = 'workoutt-sync-url';
 const AUTO_SYNC_AT_KEY = 'workoutt-last-auto-sync';
+const SESSION_SYNC_KEY = 'workoutt-session-synced';
 const AUTO_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+
+/** Fired on window whenever a sync attempt finishes (detail: SyncResult). */
+export const SYNC_EVENT = 'workoutt-sync';
 
 export interface SyncResult {
   ok: boolean;
@@ -126,7 +130,9 @@ export async function syncNow(): Promise<SyncResult> {
     await setMeta('lastPullSeq', pullJson.latestSeq ?? since);
     await setMeta('lastSyncAt', new Date().toISOString());
     await setMeta('lastError', null);
-    return { ok: true, pushed: pushJson.accepted.length, pulled };
+    const result = { ok: true, pushed: pushJson.accepted.length, pulled };
+    window.dispatchEvent(new CustomEvent(SYNC_EVENT, { detail: result }));
+    return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     try {
@@ -134,15 +140,23 @@ export async function syncNow(): Promise<SyncResult> {
     } catch {
       // storage unavailable — nothing else to do
     }
-    return { ok: false, pushed: 0, pulled: 0, error: message };
+    const result = { ok: false, pushed: 0, pulled: 0, error: message };
+    window.dispatchEvent(new CustomEvent(SYNC_EVENT, { detail: result }));
+    return result;
   }
 }
 
-/** Throttled background sync — safe to call on every page load. */
+/**
+ * Background sync, safe to call on every page load: always runs once when
+ * the app is opened (per browser session), then at most every 15 minutes as
+ * the user navigates.
+ */
 export function maybeAutoSync(): void {
   if (typeof navigator === 'undefined' || !navigator.onLine) return;
+  const syncedThisSession = sessionStorage.getItem(SESSION_SYNC_KEY) === '1';
   const last = Number(localStorage.getItem(AUTO_SYNC_AT_KEY) ?? 0);
-  if (Date.now() - last < AUTO_SYNC_INTERVAL_MS) return;
+  if (syncedThisSession && Date.now() - last < AUTO_SYNC_INTERVAL_MS) return;
+  sessionStorage.setItem(SESSION_SYNC_KEY, '1');
   localStorage.setItem(AUTO_SYNC_AT_KEY, String(Date.now()));
   void syncNow();
 }
