@@ -574,6 +574,9 @@
               </div>
             {/each}
           </div>
+          <div class="form-actions">
+            <a class="btn" href={`/workout/?id=${w.id}&edit=1`}>Edit workout</a>
+          </div>
         </Accordion>
       {/each}
     </div>

@@ -10,6 +10,7 @@
     abandonWorkout,
   } from '../../lib/services/workouts';
   import { formatDate, daysBetween, todayLocal } from '../../lib/utils/dates';
+  import { computeRecords } from '../../lib/services/records';
   import { kgToDisplay, displayToKg, kmToDisplay, displayToKm, formatWeight, formatDistance, formatDuration } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
   import type {
@@ -42,11 +43,18 @@
   let pickerTemplateId = $state('');
   let addExerciseId = $state('');
   let busy = $state(false);
+  /** Editing an already-completed workout (from history). */
+  let editing = $state(false);
+  let showFinishConfirm = $state(false);
 
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
   const du = $derived(profile?.display_distance_unit ?? 'km');
   const doneCount = $derived(items.flatMap((i) => i.sets).filter((s) => s.completed).length);
   const totalCount = $derived(items.flatMap((i) => i.sets).length);
+  /** A set is "empty" if none of its measurement fields are filled in. */
+  const isEmptySet = (s: WorkoutSet) =>
+    s.reps == null && s.weight_kg == null && s.time_seconds == null && s.distance_km == null;
+  const emptyCount = $derived(items.flatMap((i) => i.sets).filter(isEmptySet).length);
   const mainBodyParts = $derived(
     topBodyParts(items.map((i) => ({ exercise: i.exercise, weight: i.sets.length })))
   );
@@ -65,10 +73,13 @@
     profile = (await all<UserProfile>('user_profile'))[0];
     exercises = (await all<Exercise>('exercises')).sort((a, b) => a.name.localeCompare(b.name));
 
-    const id = new URLSearchParams(location.search).get('id');
+    const params = new URLSearchParams(location.search);
+    const id = params.get('id');
     workout = id ? await get<Workout>('workouts', id) : await getInProgressWorkout();
 
     if (workout) {
+      // Deep-link from history: open a completed workout straight into editing.
+      if (workout.state === 'completed' && params.get('edit') === '1') editing = true;
       await loadItems();
     } else {
       templates = (await all<WorkoutTemplate>('workout_templates')).sort((a, b) =>
@@ -162,6 +173,48 @@
 
     const saved = await put('workout_sets', $state.snapshot(item.sets[idx]) as WorkoutSet);
     item.sets[idx].updated_at = saved.updated_at;
+
+    // Entering a value in the FIRST set carries it down to the other sets
+    // that don't have that field yet — per field, so weight and reps each
+    // propagate independently regardless of entry order. Autofilled sets are
+    // never checked off; only their own data entry (or the checkbox) does that.
+    if (!('completed' in patch) && idx === 0) {
+      const VALUE_FIELDS = ['reps', 'weight_kg', 'time_seconds', 'distance_km'] as const;
+      const source = item.sets[0];
+      for (const [j, other] of item.sets.entries()) {
+        if (j === 0 || other.completed) continue;
+        let changed = false;
+        for (const f of VALUE_FIELDS) {
+          if (source[f] != null && other[f] == null) {
+            other[f] = source[f];
+            changed = true;
+          }
+        }
+        if (changed) {
+          const savedOther = await put('workout_sets', $state.snapshot(other) as WorkoutSet);
+          other.updated_at = savedOther.updated_at;
+        }
+      }
+    }
+  }
+
+  const exerciseDone = (item: Item) => item.sets.length > 0 && item.sets.every((s) => s.completed);
+
+  async function setExerciseDone(item: Item, done: boolean) {
+    for (const s of item.sets) {
+      if (s.completed !== done) await saveSet(item, s, { completed: done });
+    }
+  }
+
+  const groupMembers = (group: number) => items.filter((i) => i.we.superset_group === group);
+  const groupDone = (group: number) => groupMembers(group).every((i) => exerciseDone(i));
+  const isFirstOfGroup = (item: Item) =>
+    item.we.superset_group != null && groupMembers(item.we.superset_group)[0]?.we.id === item.we.id;
+
+  async function setGroupDone(group: number, done: boolean) {
+    for (const member of groupMembers(group)) {
+      await setExerciseDone(member, done);
+    }
   }
 
   async function addSet(item: Item) {
@@ -227,12 +280,66 @@
     items = items.filter((i) => i.we.id !== item.we.id);
   }
 
-  async function finish() {
+  /** Finish button: warn about empty sets first, otherwise complete. */
+  function requestFinish() {
     if (!workout || busy) return;
-    if (doneCount === 0 && !confirm('No sets are marked done. Finish anyway?')) return;
+    if (emptyCount > 0) {
+      showFinishConfirm = true;
+      return;
+    }
+    void completeWorkout();
+  }
+
+  async function completeWorkout() {
+    if (!workout || busy) return;
+    showFinishConfirm = false;
     busy = true;
+    const startedAt = workout.started_at;
     await finishWorkout($state.snapshot(workout) as Workout);
+
+    // Hand a full overview to the homepage, which shows it as a modal.
+    try {
+      const today = todayLocal();
+      const records = await computeRecords();
+      const exerciseIds = new Set(items.map((i) => i.we.exercise_id));
+      const prs: { exercise: string; label: string; value: number; secondary: number | null }[] = [];
+      for (const rec of records) {
+        if (!exerciseIds.has(rec.exercise.id)) continue;
+        for (const [label, progression] of Object.entries(rec.metrics)) {
+          const current = progression[progression.length - 1];
+          if (current.date === today) {
+            prs.push({ exercise: rec.exercise.name, label, value: current.value, secondary: current.secondary });
+          }
+        }
+      }
+      const exerciseSummaries = items.map((i) => ({
+        name: i.exercise?.name ?? 'Unknown exercise',
+        sets: i.sets.filter((s) => s.completed).map((s) => summarizeSet(s)),
+      }));
+      sessionStorage.setItem(
+        'workoutt-workout-summary',
+        JSON.stringify({
+          name: workout.name,
+          setsDone: doneCount,
+          totalSets: totalCount,
+          durationSec: startedAt ? Math.max(0, Math.round((Date.now() - Date.parse(startedAt)) / 1000)) : null,
+          exercises: exerciseSummaries,
+          prs,
+        })
+      );
+    } catch (err) {
+      console.error('[workoutt] workout summary failed:', err);
+    }
     location.href = '/';
+  }
+
+  /** Finished editing a previously-completed workout (changes already saved). */
+  function doneEditing() {
+    editing = false;
+    // Drop the ?edit flag so a refresh shows the read-only view.
+    const url = new URL(location.href);
+    url.searchParams.delete('edit');
+    history.replaceState(null, '', url);
   }
 
   async function abandon() {
@@ -305,7 +412,7 @@
       {/if}
     </Card>
   </div>
-{:else if workout.state === 'completed'}
+{:else if workout.state === 'completed' && !editing}
   <Card title={workout.name}>
     <p class="muted" style="margin-bottom: var(--space-3);">Completed workout.</p>
     {#each items as item (item.we.id)}
@@ -318,13 +425,18 @@
         </ul>
       </div>
     {/each}
-    <a class="btn" href="/">Back home</a>
+    <div class="header-actions">
+      <a class="btn" href="/">Back home</a>
+      <button class="btn btn-primary" onclick={() => (editing = true)}>Edit workout</button>
+    </div>
   </Card>
 {:else}
   <div class="workout-header">
     <div>
       <h2>{workout.name}</h2>
-      <p class="muted">{doneCount}/{totalCount} sets done</p>
+      <p class="muted">
+        {#if editing}Editing completed workout · {/if}{doneCount}/{totalCount} sets done
+      </p>
       {#if mainBodyParts.length > 0}
         <div class="bp-chips">
           {#each mainBodyParts as part}
@@ -334,8 +446,12 @@
       {/if}
     </div>
     <div class="header-actions">
-      <button class="btn btn-danger" onclick={abandon} disabled={busy}>Abandon</button>
-      <button class="btn btn-primary" onclick={finish} disabled={busy}>Finish workout</button>
+      {#if editing}
+        <button class="btn btn-primary" onclick={doneEditing} disabled={busy}>Done editing</button>
+      {:else}
+        <button class="btn btn-danger" onclick={abandon} disabled={busy}>Abandon</button>
+        <button class="btn btn-primary" onclick={requestFinish} disabled={busy}>Finish workout</button>
+      {/if}
     </div>
   </div>
 
@@ -350,7 +466,27 @@
               <span class="ss-badge">SS{item.we.superset_group}</span>
             {/if}
           </h3>
-          <button class="btn btn-danger" onclick={() => removeExercise(item)} aria-label="Remove exercise">✕</button>
+          <div class="hdr-controls">
+            {#if isFirstOfGroup(item)}
+              <label class="hdr-check" title="Mark every set in this superset done">
+                <input
+                  type="checkbox"
+                  checked={groupDone(item.we.superset_group!)}
+                  onchange={(e) => setGroupDone(item.we.superset_group!, (e.target as HTMLInputElement).checked)}
+                />
+                Superset done
+              </label>
+            {/if}
+            <label class="hdr-check" title="Mark every set of this exercise done">
+              <input
+                type="checkbox"
+                checked={exerciseDone(item)}
+                onchange={(e) => setExerciseDone(item, (e.target as HTMLInputElement).checked)}
+              />
+              All done
+            </label>
+            <button class="btn btn-danger" onclick={() => removeExercise(item)} aria-label="Remove exercise">✕</button>
+          </div>
         </div>
 
         <div class="sets">
@@ -444,6 +580,26 @@
       </div>
     </Card>
   </div>
+
+  {#if showFinishConfirm}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="finish-confirm-title">
+      <div class="modal">
+        <h3 id="finish-confirm-title">Finish with empty sets?</h3>
+        <p class="muted">
+          {emptyCount} {emptyCount === 1 ? 'set has' : 'sets have'} no values entered. Those
+          empty sets won't be counted. Finish this workout anyway?
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="btn" onclick={() => (showFinishConfirm = false)} disabled={busy}>
+            Go back
+          </button>
+          <button type="button" class="btn btn-primary" onclick={completeWorkout} disabled={busy}>
+            Finish anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -459,6 +615,37 @@
   .header-actions {
     display: flex;
     gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgb(0 0 0 / 0.5);
+    display: grid;
+    place-items: center;
+    z-index: 50;
+    padding: var(--space-4);
+  }
+
+  .modal {
+    background: var(--surface-raised-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-2);
+    padding: var(--space-5);
+    max-width: 30rem;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: var(--space-2);
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
 
   .exercise-header {
@@ -467,6 +654,30 @@
     align-items: center;
     gap: var(--space-2);
     margin-bottom: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .hdr-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .hdr-check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    margin: 0;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .hdr-check input {
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: var(--color-primary);
   }
 
   .ss-badge {

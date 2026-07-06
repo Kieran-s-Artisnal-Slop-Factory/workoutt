@@ -12,6 +12,7 @@
   } from '../../lib/services/workouts';
   import { recentPRs, type RecentPR } from '../../lib/services/records';
   import { formatRecordValue } from '../../lib/utils/records-format';
+  import { formatDuration } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
   import { formatDate, todayLocal, daysBetween, addDays, dayOfWeek, WEEKDAYS_SHORT } from '../../lib/utils/dates';
   import type {
@@ -39,6 +40,17 @@
   let busy = $state(false);
   let greeting = $state('Home');
 
+  /** One-shot workout summary handed over by the active-workout page. */
+  interface WorkoutSummary {
+    name: string;
+    setsDone: number;
+    totalSets: number;
+    durationSec: number | null;
+    exercises?: { name: string; sets: string[] }[];
+    prs: { exercise: string; label: string; value: number; secondary: number | null }[];
+  }
+  let summary: WorkoutSummary | null = $state(null);
+
   const GREETINGS: ((name: string | null) => string)[] = [
     (n) => (n ? `Welcome back, ${n}!` : 'Welcome back!'),
     (n) => (n ? `Ready to lift, ${n}?` : 'Ready to lift?'),
@@ -61,6 +73,16 @@
       return;
     }
     greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)](profile.name ?? null);
+
+    const raw = sessionStorage.getItem('workoutt-workout-summary');
+    if (raw) {
+      sessionStorage.removeItem('workoutt-workout-summary'); // shown once
+      try {
+        summary = JSON.parse(raw) as WorkoutSummary;
+      } catch {
+        summary = null;
+      }
+    }
     // Reschedule anything that was missed before showing the week.
     await applyBumps();
     await refresh();
@@ -197,6 +219,53 @@
 {#if loading}
   <p class="muted">Loading…</p>
 {:else}
+  {#if summary}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="summary-title">
+      <div class="modal">
+        <h3 id="summary-title">Workout complete 🎉</h3>
+        <p class="summary-line">
+          <strong>{summary.name}</strong> — {summary.setsDone}/{summary.totalSets} sets done{#if summary.durationSec != null}&nbsp;in {formatDuration(summary.durationSec)}{/if}
+        </p>
+
+        {#if summary.prs.length > 0}
+          <div>
+            <p class="pr-heading">New personal records</p>
+            <ul class="new-prs">
+              {#each summary.prs as pr}
+                <li>
+                  <strong>{pr.exercise}</strong>
+                  <span class="muted">{pr.label}</span>
+                  <span class="pr-value">
+                    {formatRecordValue(pr.label, { value: pr.value, secondary: pr.secondary, date: today }, wu, du)}
+                  </span>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+
+        {#if summary.exercises && summary.exercises.length > 0}
+          <div class="summary-exercises">
+            {#each summary.exercises as ex}
+              <div class="summary-ex">
+                <strong>{ex.name}</strong>
+                {#if ex.sets.length > 0}
+                  <span class="muted">{ex.sets.join(' · ')}</span>
+                {:else}
+                  <span class="muted">no sets completed</span>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
+
+        <div class="modal-actions">
+          <button class="btn" onclick={() => (summary = null)}>Dismiss</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <div class="stack">
     <div class="grid-2">
       <Card title="Next workout">
@@ -495,6 +564,75 @@
 
   .pr-exercise {
     font-weight: 700;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgb(0 0 0 / 0.5);
+    display: grid;
+    place-items: center;
+    z-index: 50;
+    padding: var(--space-4);
+  }
+
+  .modal {
+    background: var(--surface-raised-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-2);
+    padding: var(--space-5);
+    max-width: 34rem;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .summary-line {
+    font-size: var(--font-size-lg);
+  }
+
+  .summary-exercises {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    border-top: 1px solid var(--border-color);
+    padding-top: var(--space-3);
+  }
+
+  .summary-ex {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .pr-heading {
+    font-weight: 700;
+    color: var(--color-primary-strong);
+    margin-bottom: var(--space-1);
+  }
+
+  .new-prs {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .new-prs li {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    flex-wrap: wrap;
   }
 
   .pr-value {
