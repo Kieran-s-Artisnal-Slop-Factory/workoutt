@@ -27,7 +27,7 @@
   let rotations: ProgramTemplateWorkout[] = $state([]);
   let workoutTemplates: WorkoutTemplate[] = $state([]);
   let activeProgram: Program | undefined = $state();
-  let progress = $state({ completed: 0, total: 0 });
+  let progress = $state({ completed: 0, total: 0, skipped: 0, bumped: 0 });
   let currentDescription = $state('');
   let currentRotation: string[] = $state([]);
   let pastPrograms: Program[] = $state([]);
@@ -283,6 +283,8 @@
         <p class="muted">
           Started {formatDate(activeProgram.started_on)} · ends {formatDate(activeProgram.ends_on)} ·
           {progress.completed}/{progress.total} workouts completed
+          {#if progress.skipped > 0}&nbsp;· {progress.skipped} skipped{/if}
+          {#if progress.bumped > 0}&nbsp;· {progress.bumped} bumped{/if}
         </p>
         <div class="form-actions" style="margin-top: var(--space-3);">
           <button class="btn btn-danger" onclick={abandon} disabled={busy}>Abandon program</button>

@@ -272,14 +272,22 @@ export async function abandonProgram(program: Program): Promise<void> {
   await put('programs', { ...program, state: 'abandoned' });
 }
 
-/** Progress of a program: completed vs total (completed + skipped + remaining). */
-export async function programProgress(
-  program: Program
-): Promise<{ completed: number; total: number }> {
+export interface ProgramProgress {
+  completed: number;
+  total: number;
+  skipped: number;
+  /** Workouts that were rescheduled at least once (any state). */
+  bumped: number;
+}
+
+/** Progress of a program: completed vs total, plus skip/bump counts. */
+export async function programProgress(program: Program): Promise<ProgramProgress> {
   const workouts = await byIndex<Workout>('workouts', 'program_id', program.id);
   return {
     completed: workouts.filter((w) => w.state === 'completed').length,
     total: workouts.length,
+    skipped: workouts.filter((w) => w.state === 'skipped').length,
+    bumped: workouts.filter((w) => w.original_scheduled_on != null).length,
   };
 }
 

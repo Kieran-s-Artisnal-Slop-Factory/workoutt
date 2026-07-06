@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { all, put, withSyncFields, nowIso } from '../../lib/db/repo';
   import { requestPersistentStorage } from '../../lib/db/persistence';
-  import { testConnection, setSyncUrl, getSyncUrl } from '../../lib/sync';
+  import { testConnection, setSyncUrl, getSyncUrl, syncNow } from '../../lib/sync';
   import { displayToKg, kgToDisplay } from '../../lib/utils/units';
   import { todayLocal } from '../../lib/utils/dates';
   import type {
@@ -29,7 +29,37 @@
   let currentWeight: number | '' = $state('');
   let age: number | '' = $state('');
   let height: number | '' = $state('');
+  let heightUnit: 'cm' | 'ftin' = $state('cm');
+  let heightFt: number | '' = $state('');
+  let heightIn: number | '' = $state('');
   let experience: ExperienceLevel = $state('beginner');
+
+  const CM_PER_IN = 2.54;
+
+  /** Whatever the inputs hold, as canonical centimeters. */
+  function heightAsCm(): number | null {
+    if (heightUnit === 'cm') return height === '' ? null : Number(height);
+    if (heightFt === '' && heightIn === '') return null;
+    const inches = (heightFt === '' ? 0 : Number(heightFt)) * 12 + (heightIn === '' ? 0 : Number(heightIn));
+    return Math.round(inches * CM_PER_IN * 10) / 10;
+  }
+
+  /** Convert the current value when the user flips the height unit. */
+  function onHeightUnitChange() {
+    if (heightUnit === 'ftin' && height !== '') {
+      const totalIn = Number(height) / CM_PER_IN;
+      heightFt = Math.floor(totalIn / 12);
+      heightIn = Math.round(totalIn % 12);
+    } else if (heightUnit === 'cm' && (heightFt !== '' || heightIn !== '')) {
+      height = heightAsCmFromFtIn();
+    }
+  }
+
+  function heightAsCmFromFtIn(): number | '' {
+    if (heightFt === '' && heightIn === '') return '';
+    const inches = (heightFt === '' ? 0 : Number(heightFt)) * 12 + (heightIn === '' ? 0 : Number(heightIn));
+    return Math.round(inches * CM_PER_IN * 10) / 10;
+  }
 
   let mode: 'offline' | 'sync' = $state('offline');
   let serverUrl = $state('');
@@ -117,7 +147,7 @@
         display_weight_unit: weightUnit,
         display_distance_unit: distanceUnit,
         age_years: age === '' ? null : Number(age),
-        height_cm: height === '' ? null : Number(height),
+        height_cm: heightAsCm(),
         experience_level: experience,
         weight_tracking_enabled: currentWeight !== '',
         onboarding_completed_at: nowIso(),
@@ -142,6 +172,12 @@
       }
 
       setSyncUrl(mode === 'sync' ? serverUrl : '');
+      if (mode === 'sync') {
+        // First sync right away so any existing server data is here before
+        // the homepage renders (also counts as this session's initial sync).
+        sessionStorage.setItem('workoutt-session-synced', '1');
+        await syncNow();
+      }
 
       // Ask the browser to protect our data from eviction (result shown in Settings).
       await requestPersistentStorage();
@@ -220,8 +256,26 @@
 
       <div class="row">
         <div>
-          <label for="ob-height">Height (cm)</label>
-          <input id="ob-height" type="number" min="50" max="250" bind:value={height} />
+          <div class="height-label">
+            <label for="ob-height">Height</label>
+            <select
+              class="height-unit"
+              bind:value={heightUnit}
+              onchange={onHeightUnitChange}
+              aria-label="Height unit"
+            >
+              <option value="cm">cm</option>
+              <option value="ftin">ft + in</option>
+            </select>
+          </div>
+          {#if heightUnit === 'cm'}
+            <input id="ob-height" type="number" min="50" max="250" bind:value={height} placeholder="cm" />
+          {:else}
+            <div class="ftin-row">
+              <input id="ob-height" type="number" min="1" max="8" bind:value={heightFt} placeholder="ft" aria-label="Height feet" />
+              <input type="number" min="0" max="11" bind:value={heightIn} placeholder="in" aria-label="Height inches" />
+            </div>
+          {/if}
         </div>
         <div>
           <label for="ob-exp">Experience</label>
@@ -290,6 +344,29 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--space-3);
+  }
+
+  .height-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .height-label label {
+    margin-bottom: var(--space-1);
+  }
+
+  .height-unit {
+    width: auto;
+    padding: 0 var(--space-2);
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-1);
+  }
+
+  .ftin-row {
+    display: flex;
+    gap: var(--space-2);
   }
 
   .field-label {

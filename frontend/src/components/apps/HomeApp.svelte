@@ -29,7 +29,7 @@
   let nextWorkout: Workout | undefined = $state();
   let nextBodyParts: string[] = $state([]);
   let program: Program | undefined = $state();
-  let progress = $state({ completed: 0, total: 0 });
+  let progress = $state({ completed: 0, total: 0, skipped: 0, bumped: 0 });
   let templates: WorkoutTemplate[] = $state([]);
   let adhocTemplateId = $state('');
   let prs: RecentPR[] = $state([]);
@@ -256,7 +256,10 @@
         {#if program}
           <h3>{program.name}</h3>
           <p class="muted">
-            {progress.completed} of {progress.total} workouts done · ends {formatDate(program.ends_on)}
+            {progress.completed} of {progress.total} workouts done
+            {#if progress.skipped > 0}&nbsp;· {progress.skipped} skipped{/if}
+            {#if progress.bumped > 0}&nbsp;· {progress.bumped} bumped{/if}
+            &nbsp;· ends {formatDate(program.ends_on)}
           </p>
           <div class="progress" role="progressbar" aria-valuenow={progress.completed} aria-valuemax={progress.total}>
             <div
