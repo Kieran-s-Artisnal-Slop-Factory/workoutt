@@ -49,7 +49,7 @@ const currentPath = Astro.url.pathname;
       const base = import.meta.env.BASE_URL;
       const onboardingUrl = new URL('onboarding', location.origin + base).pathname;
 
-      if (!location.pathname.startsWith(onboardingUrl)) {
+      if (!location.pathname.endsWith("onboarding")) {
         try {
           const profile = (await all<UserProfile>('user_profile'))[0];
           if (!profile?.onboarding_completed_at) {
