@@ -42,7 +42,7 @@
       return;
     }
     await clearAllData();
-    location.href = '/onboarding/';
+    location.href = './onboarding';
   }
 
   function applyTheme() {
@@ -202,7 +202,7 @@
       </Card>
     {:else}
       <Card title="Preferences">
-        <p class="muted">No profile yet — <a href="/onboarding/">run onboarding</a>.</p>
+        <p class="muted">No profile yet — <a href="./onboarding">run onboarding</a>.</p>
       </Card>
     {/if}
 
