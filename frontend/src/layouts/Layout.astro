@@ -46,14 +46,18 @@ const currentPath = Astro.url.pathname;
       // user to onboarding, which offers best-effort recovery.
       import { all } from '../lib/db/repo';
       import type { UserProfile } from '../lib/db/types';
+      const base = import.meta.env.BASE_URL;
+      const onboardingUrl = new URL('onboarding', location.origin + base).pathname;
 
-      if (!location.pathname.startsWith('/onboarding')) {
+      if (!location.pathname.startsWith(onboardingUrl)) {
         try {
           const profile = (await all<UserProfile>('user_profile'))[0];
-          if (!profile?.onboarding_completed_at) location.replace('./onboarding');
+          if (!profile?.onboarding_completed_at) {
+            location.replace(onboardingUrl);
+          }
         } catch (err) {
           console.error('[workoutt] onboarding check failed:', err);
-          location.replace('./onboarding');
+          location.replace(onboardingUrl);
         }
       }
     </script>
