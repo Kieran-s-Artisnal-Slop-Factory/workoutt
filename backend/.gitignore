@@ -1,0 +1,7 @@
+# build output
+backend.exe
+
+# DB files
+workoutt.db-shm
+workoutt.db-wal
+workoutt.db

@@ -6,7 +6,11 @@
 import { all, bulkPut, put, withSyncFields, nowIso } from './repo';
 import type { Exercise, UserProfile } from './types';
 import { addDays, parseLocalDate, todayLocal } from '../utils/dates';
-import { startProgram, startWorkout, finishWorkout, getActiveProgram } from '../services/workouts';
+import {   startProgram,
+  startWorkout,
+  finishWorkout,
+  getActiveProgram,
+  skipWorkout, } from '../services/workouts';
 import { byIndex } from './repo';
 import type { Program, ProgramTemplate, Workout, WorkoutExercise, WorkoutSet } from './types';
 
@@ -435,6 +439,94 @@ export async function seedSampleData(): Promise<string> {
     )
   );
 
+  // -----------------------------------------------------------------------------
+  // Historical completed program
+  // -----------------------------------------------------------------------------
+
+  const oldProgramStart = addDays(
+    todayLocal(),
+    -(ppl.duration_weeks * 7 + 14)
+  );
+
+  await startProgram(ppl as ProgramTemplate, oldProgramStart);
+
+  const previousProgram = (
+    await byIndex<Program>('programs', 'state', 'active')
+  ).find((p) => p.started_on === oldProgramStart)!;
+
+  const previousWorkouts = (
+    await byIndex<Workout>('workouts', 'program_id', previousProgram.id)
+  ).sort((a, b) => a.scheduled_on!.localeCompare(b.scheduled_on!));
+
+  let completedCount = 0;
+
+  for (const workout of previousWorkouts) {
+    if (!workout.scheduled_on) continue;
+
+    // Skip roughly every 5th workout
+    if (completedCount % 5 === 4) {
+      await skipWorkout(workout);
+      completedCount++;
+      continue;
+    }
+
+    await startWorkout(workout);
+
+    const wes = await byIndex<WorkoutExercise>(
+      'workout_exercises',
+      'workout_id',
+      workout.id
+    );
+
+    for (const we of wes) {
+      const sets = await byIndex<WorkoutSet>(
+        'workout_sets',
+        'workout_exercise_id',
+        we.id
+      );
+
+      for (const s of sets) {
+        const done = { ...s, completed: true };
+
+        if (done.weight_kg != null)
+          done.weight_kg += Math.floor(completedCount / 2) * 2.5;
+
+        if (done.reps != null)
+          done.reps += Math.floor(completedCount / 4);
+
+        if (done.time_seconds != null)
+          done.time_seconds += Math.floor(completedCount / 3) * 10;
+
+        await put('workout_sets', done);
+      }
+    }
+
+    const fresh = (
+      await byIndex<Workout>('workouts', 'program_id', previousProgram.id)
+    ).find((w) => w.id === workout.id)!;
+
+    await finishWorkout(fresh);
+
+    const finished = (
+      await byIndex<Workout>('workouts', 'program_id', previousProgram.id)
+    ).find((w) => w.id === workout.id)!;
+
+    await put('workouts', {
+      ...finished,
+      started_at: isoAtNoon(workout.scheduled_on),
+      completed_at: isoAtNoon(workout.scheduled_on),
+    });
+
+    completedCount++;
+  }
+
+  // mark the historical program complete so the next one can become active
+  await put('programs', {
+    ...previousProgram,
+    state: 'completed',
+  });
+
+
   // Start the program 2 weeks ago and complete the first 6 sessions with
   // slightly increasing numbers so Records shows PR progressions.
   const startedOn = addDays(todayLocal(), -14);
@@ -485,5 +577,5 @@ export async function seedSampleData(): Promise<string> {
   );
   await bulkPut('body_weight_entries', weights);
 
-  return `Seeded ${Object.keys(ex).length} exercises, 3 workout templates, 1 program (${sessionIdx} completed sessions), and ${weights.length} weight entries.`;
+  return `Seeded ${Object.keys(ex).length+Object.keys(extraExercises).length} exercises, ${3+extraTemplates.length} workout templates, 3 programs, and ${weights.length} weight entries.`;
 }

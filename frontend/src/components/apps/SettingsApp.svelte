@@ -55,13 +55,22 @@
     }
   }
 
-  async function runSync() {
+  async function runSync(seeded:boolean=false) {
     syncing = true;
     const result = await syncNow();
     syncing = false;
-    message = result.ok
-      ? `Synced: pushed ${result.pushed}, pulled ${result.pulled}.`
-      : `Sync failed: ${result.error}`;
+    if (seeded){
+      message += result.ok
+      ? `\nSync After Seed Complete: pushed ${result.pushed}, pulled ${result.pulled}.`
+      : `\nSync failed: ${result.error}`;
+    } else{
+      console.log(result.pushed, result.pulled)
+      message = result.ok
+        ? ((result.pushed===0) && (result.pulled===0))
+          ?'Sync complete: no changes to push or pull.'
+          :`Sync Complete: pushed ${result.pushed}, pulled ${result.pulled}.`
+        : `Sync failed: ${result.error}`;
+    }
     syncStatus = await getSyncStatus();
   }
 
@@ -116,7 +125,11 @@
   }
 
   async function runSeed() {
-    message = await seedSampleData();
+    const seedInfo = await seedSampleData();
+    message = seedInfo;
+    if (syncUrl){
+      await runSync(true) // Modifies message state in the call when seeded is true
+    } 
   }
 </script>
 
@@ -223,7 +236,7 @@
           placeholder="e.g. http://192.168.1.10:8080"
         />
       </div>
-      <button class="btn btn-primary" onclick={runSync} disabled={syncing}>
+      <button class="btn btn-primary" onclick={() => runSync()} disabled={syncing}>
         {syncing ? 'Syncing…' : 'Sync now'}
       </button>
     </Card>
