@@ -11,7 +11,6 @@
     UserProfile,
     WeightUnit,
     DistanceUnit,
-    ExperienceLevel,
   } from '../../lib/db/types';
   import Card from '../Card.svelte';
 
@@ -34,7 +33,6 @@
   let heightUnit: 'cm' | 'ftin' = $state('cm');
   let heightFt: number | '' = $state('');
   let heightIn: number | '' = $state('');
-  let experience: ExperienceLevel = $state('beginner');
 
   const CM_PER_IN = 2.54;
 
@@ -110,7 +108,6 @@
         distanceUnit = existing.display_distance_unit ?? 'km';
         age = existing.age_years ?? '';
         height = existing.height_cm ?? '';
-        experience = existing.experience_level ?? 'beginner';
       }
       const weights = (await all<BodyWeightEntry>('body_weight_entries')).sort((a, b) =>
         b.measured_on.localeCompare(a.measured_on)
@@ -144,23 +141,28 @@
     saving = true;
     submitError = '';
     try {
+      // Experience level is no longer collected here — it's chosen in the
+      // program walkthrough. New profiles start with it unset; existing rows
+      // keep whatever they already had.
       const fields = {
         name: name.trim() || null,
         display_weight_unit: weightUnit,
         display_distance_unit: distanceUnit,
         age_years: age === '' ? null : Number(age),
         height_cm: heightAsCm(),
-        experience_level: experience,
         weight_tracking_enabled: currentWeight !== '',
         onboarding_completed_at: nowIso(),
       };
 
       if (existing) {
         // Merge into the surviving row: keeps its id (sync identity) and any
-        // fields onboarding doesn't manage (e.g. highlighted PRs).
+        // fields onboarding doesn't manage (e.g. highlighted PRs, experience).
         await put('user_profile', { ...existing, ...fields });
       } else {
-        await put('user_profile', withSyncFields({ ...fields, highlighted_exercise_ids: [] }));
+        await put(
+          'user_profile',
+          withSyncFields({ ...fields, experience_level: null, highlighted_exercise_ids: [] })
+        );
       }
 
       if (currentWeight !== '') {
@@ -289,14 +291,7 @@
             </div>
           {/if}
         </div>
-        <div>
-          <label for="ob-exp">Experience</label>
-          <select id="ob-exp" bind:value={experience}>
-            <option value="beginner">Beginner (&lt;1 year)</option>
-            <option value="intermediate">Intermediate (&lt;5 years)</option>
-            <option value="advanced">Advanced (5+ years)</option>
-          </select>
-        </div>
+        <div></div>
       </div>
 
       <div>

@@ -10,10 +10,17 @@
   import { all, put, withSyncFields } from '../../lib/db/repo';
   import { startProgram } from '../../lib/services/workouts';
   import { BODY_PARTS, MEASUREMENT_TYPES } from '../../lib/db/types';
-  import type { BodyPart, Exercise, MeasurementType, ProgramTemplate } from '../../lib/db/types';
+  import type { BodyPart, Exercise, ExperienceLevel, MeasurementType, ProgramTemplate, UserProfile } from '../../lib/db/types';
   import { WEEKDAYS_SHORT } from '../../lib/utils/dates';
   import { href } from '../../lib/paths';
+  import { generatePlan, PLAN_OPTIONS, type PlanType } from '../../lib/planPresets';
   import Card from '../Card.svelte';
+
+  const EXPERIENCE_OPTIONS: { value: ExperienceLevel; label: string; blurb: string }[] = [
+    { value: 'beginner', label: 'Beginner', blurb: 'Under 1 year — 3×/week, no supersets, one main lift per day.' },
+    { value: 'intermediate', label: 'Intermediate', blurb: 'Under 5 years — 4×/week, supersets, 1–2 main lifts per day.' },
+    { value: 'advanced', label: 'Advanced', blurb: '5+ years — 4–5×/week, no restrictions.' },
+  ];
 
   const MEASUREMENT_LABELS: Record<MeasurementType, string> = {
     reps: 'Reps only',
@@ -34,6 +41,7 @@
   interface WizTemplateRow {
     exerciseName: string;
     sets: number | '';
+    superset_group?: number | null;
   }
 
   interface WizTemplate {
@@ -41,50 +49,10 @@
     rows: WizTemplateRow[];
   }
 
-  const PPL: {
-    exercises: WizExercise[];
-    templates: WizTemplate[];
-    program: { name: string; frequency: number; weeks: number; days: number[] };
-  } = {
-    exercises: [
-      { name: 'Bench Press', body_parts: ['chest', 'triceps', 'shoulders'], measurement_type: 'weight_reps' },
-      { name: 'Overhead Press', body_parts: ['shoulders', 'triceps'], measurement_type: 'weight_reps' },
-      { name: 'Barbell Row', body_parts: ['back', 'lats', 'biceps'], measurement_type: 'weight_reps' },
-      { name: 'Pull-up', body_parts: ['lats', 'biceps', 'traps'], measurement_type: 'reps' },
-      { name: 'Back Squat', body_parts: ['quads', 'glutes', 'hamstrings', 'core'], measurement_type: 'weight_reps' },
-      { name: 'Deadlift', body_parts: ['back', 'hamstrings', 'glutes', 'traps'], measurement_type: 'weight_reps' },
-      { name: 'Plank', body_parts: ['core'], measurement_type: 'time' },
-    ],
-    templates: [
-      {
-        name: 'Push Day',
-        rows: [
-          { exerciseName: 'Bench Press', sets: 4 },
-          { exerciseName: 'Overhead Press', sets: 3 },
-          { exerciseName: 'Plank', sets: 3 },
-        ],
-      },
-      {
-        name: 'Pull Day',
-        rows: [
-          { exerciseName: 'Deadlift', sets: 3 },
-          { exerciseName: 'Barbell Row', sets: 3 },
-          { exerciseName: 'Pull-up', sets: 3 },
-        ],
-      },
-      {
-        name: 'Leg Day',
-        rows: [
-          { exerciseName: 'Back Squat', sets: 5 },
-          { exerciseName: 'Plank', sets: 3 },
-        ],
-      },
-    ],
-    program: { name: 'Push / Pull / Legs', frequency: 3, weeks: 8, days: [1, 3, 5] },
-  };
-
   let step: 0 | 1 | 2 | 3 = $state(0);
   let mode: 'guided' | 'custom' = $state('guided');
+  let experience: ExperienceLevel = $state('beginner');
+  let chosenPlan: PlanType | null = $state(null);
   let existingNames: Set<string> = new Set();
 
   let exercises: WizExercise[] = $state([]);
@@ -112,20 +80,34 @@
     }
   });
 
-  function choosePath(chosen: 'guided' | 'custom') {
-    mode = chosen;
-    if (chosen === 'guided') {
-      exercises = PPL.exercises.map((e) => ({ ...e, body_parts: [...e.body_parts], reused: existingNames.has(e.name.toLowerCase()) }));
-      templates = PPL.templates.map((t) => ({ name: t.name, rows: t.rows.map((r) => ({ ...r })) }));
-      programName = PPL.program.name;
-      frequency = PPL.program.frequency;
-      weeks = PPL.program.weeks;
-      days = [...PPL.program.days];
-    } else {
-      exercises = [];
-      templates = [{ name: '', rows: [] }];
-      programName = 'My Program';
-    }
+  /** Generate a guided plan from the chosen plan type + experience level. */
+  function choosePlan(type: PlanType) {
+    mode = 'guided';
+    chosenPlan = type;
+    const plan = generatePlan(type, experience);
+    exercises = plan.exercises.map((e) => ({
+      ...e,
+      body_parts: [...e.body_parts],
+      reused: existingNames.has(e.name.toLowerCase()),
+    }));
+    templates = plan.templates.map((t) => ({
+      name: t.name,
+      rows: t.rows.map((r) => ({ exerciseName: r.exerciseName, sets: r.sets, superset_group: r.superset_group })),
+    }));
+    programName = plan.program.name;
+    frequency = plan.program.frequency;
+    weeks = plan.program.weeks;
+    days = [...plan.program.days];
+    stepError = '';
+    step = 1;
+  }
+
+  function chooseCustom() {
+    mode = 'custom';
+    chosenPlan = null;
+    exercises = [];
+    templates = [{ name: '', rows: [] }];
+    programName = 'My Program';
     stepError = '';
     step = 1;
   }
@@ -206,6 +188,12 @@
     committing = true;
     stepError = '';
     try {
+      // Save the experience level chosen here (onboarding no longer asks it).
+      const profile = (await all<UserProfile>('user_profile'))[0];
+      if (profile && profile.experience_level !== experience) {
+        await put('user_profile', { ...profile, experience_level: experience });
+      }
+
       // Exercises — reuse by name, create the rest.
       const allExisting = await all<Exercise>('exercises');
       const idByName = new Map(allExisting.map((ex) => [ex.name.toLowerCase(), ex.id]));
@@ -243,7 +231,7 @@
               exercise_id: exerciseId.get(row.exerciseName)!,
               position,
               set_count: Number(row.sets) || 3,
-              superset_group: null,
+              superset_group: row.superset_group ?? null,
               target_reps: null,
               target_weight_kg: null,
               target_time_seconds: null,
@@ -301,22 +289,46 @@
   </Card>
 {:else if step === 0}
   <Card title="Set up your first program">
-    <p style="margin-bottom: var(--space-3);">
+    <p style="margin-bottom: var(--space-4);">
       In Workoutt you build things in three layers: <strong>exercises</strong>
       (the movements), <strong>workout templates</strong> (a reusable session
       plan made of exercises), and a <strong>program</strong> (a weekly
       schedule that rotates through your templates). This walkthrough sets up
       all three.
     </p>
+
+    <div class="exp-block">
+      <span class="field-label">How much training experience do you have?</span>
+      <p class="muted" style="font-size: var(--font-size-sm); margin-bottom: var(--space-2);">
+        We tailor the plan's frequency, supersets, and main lifts to your level.
+      </p>
+      <div class="exp-options">
+        {#each EXPERIENCE_OPTIONS as opt}
+          <button
+            type="button"
+            class="exp-option"
+            class:selected={experience === opt.value}
+            aria-pressed={experience === opt.value}
+            onclick={() => (experience = opt.value)}
+          >
+            <strong>{opt.label}</strong>
+            <span class="muted">{opt.blurb}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+
+    <span class="field-label" style="margin-top: var(--space-4); display: block;">
+      Pick a plan to start from
+    </span>
     <div class="paths">
-      <button type="button" class="path" onclick={() => choosePath('guided')}>
-        <strong>Use the classic Push / Pull / Legs</strong>
-        <span class="muted">
-          A proven 3-day split. Everything is filled in for you — just review
-          each step and tweak what you like.
-        </span>
-      </button>
-      <button type="button" class="path" onclick={() => choosePath('custom')}>
+      {#each PLAN_OPTIONS as plan}
+        <button type="button" class="path" onclick={() => choosePlan(plan.type)}>
+          <strong>{plan.label}</strong>
+          <span class="muted">{plan.description}</span>
+        </button>
+      {/each}
+      <button type="button" class="path" onclick={chooseCustom}>
         <strong>Build my own from scratch</strong>
         <span class="muted">
           Start with blank forms and we'll walk you through each layer.
@@ -341,8 +353,8 @@
         Exercises are the building blocks: each has a name, the body parts it
         targets, and how it's measured (weight and reps, just reps, time…).
         {#if mode === 'guided'}
-          We've picked seven classics for Push/Pull/Legs — remove any you
-          don't want or add your own.
+          We've picked a set that fits your plan and experience level — remove
+          any you don't want or add your own.
         {/if}
       </p>
 
@@ -403,8 +415,14 @@
       <p class="muted explain">
         A workout template is a reusable session plan: which exercises you'll
         do and how many sets of each. When you hit "start workout" the app
-        copies the template so you can log what you actually did. (You can add
-        set targets and supersets later in the Workouts page.)
+        copies the template so you can log what you actually did.
+        {#if mode === 'guided'}
+          Exercises marked <span class="ss-badge">SS</span> are supersetted
+          (done back-to-back); you can fine-tune targets and supersets later
+          in the Workouts page.
+        {:else}
+          (You can add set targets and supersets later in the Workouts page.)
+        {/if}
       </p>
 
       {#each templates as t, ti (ti)}
@@ -423,6 +441,9 @@
                 {/each}
               </select>
               <input type="number" min="1" max="20" bind:value={row.sets} placeholder="sets" aria-label="Sets" />
+              {#if row.superset_group != null}
+                <span class="ss-badge" title="Supersetted">SS{row.superset_group}</span>
+              {/if}
               <button class="remove" onclick={() => (t.rows = t.rows.filter((_, j) => j !== ri))} aria-label="Remove exercise row">✕</button>
             </div>
           {/each}
@@ -453,6 +474,10 @@
         through your templates in the order from step 2
         ({templates.map((t) => t.name).join(' → ')}). Miss a day and the app
         bumps it forward automatically.
+        {#if mode === 'guided'}
+          We've set the frequency to match your <strong>{experience}</strong>
+          level — adjust anything below before creating it.
+        {/if}
       </p>
 
       <form class="stack" onsubmit={commit}>
@@ -518,6 +543,52 @@
 
   .path:hover {
     border-color: var(--color-primary);
+  }
+
+  .exp-block {
+    margin-bottom: var(--space-2);
+  }
+
+  .exp-options {
+    display: grid;
+    gap: var(--space-2);
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  }
+
+  .exp-option {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    text-align: left;
+    background: var(--surface-color);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .exp-option:hover {
+    border-color: var(--color-primary);
+  }
+
+  .exp-option.selected {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+  }
+
+  .exp-option strong {
+    color: var(--text-color);
+  }
+
+  .ss-badge {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-radius: var(--radius-full);
+    padding: 0 var(--space-2);
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    white-space: nowrap;
   }
 
   .wizard-head {
