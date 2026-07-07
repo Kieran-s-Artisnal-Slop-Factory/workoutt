@@ -20,6 +20,7 @@
   import TimeInput from '../TimeInput.svelte';
   import ChipFilter from '../ChipFilter.svelte';
   import Pagination from '../Pagination.svelte';
+  import { href } from '../../lib/paths';
 
   const HISTORY_PAGE_SIZE = 250;
 
@@ -296,7 +297,7 @@
     if (busy) return;
     busy = true;
     const workout = await startAdhocWorkout($state.snapshot(t) as WorkoutTemplate);
-    location.href = `/workout/?id=${workout.id}`;
+    location.href = href(`/workout/?id=${workout.id}`);
   }
 
   function measurementOf(exerciseId: string) {
@@ -404,7 +405,7 @@
 {:else}
   {#if exercises.length === 0}
     <p class="muted" style="margin-bottom: var(--space-4);">
-      <a href="/exercises/">Create some exercises</a> first — templates are built from them.
+      <a href={href('/exercises/')}>Create some exercises</a> first — templates are built from them.
     </p>
   {/if}
 
@@ -596,7 +597,7 @@
             {/each}
           </div>
           <div class="form-actions">
-            <a class="btn" href={`/workout/?id=${w.id}&edit=1`}>Edit workout</a>
+            <a class="btn" href={href(`/workout/?id=${w.id}&edit=1`)}>Edit workout</a>
           </div>
         </Accordion>
       {/each}

@@ -5,6 +5,7 @@
   import { testConnection, setSyncUrl, getSyncUrl, setSyncMode, syncNow } from '../../lib/sync';
   import { displayToKg, kgToDisplay } from '../../lib/utils/units';
   import { todayLocal } from '../../lib/utils/dates';
+  import { href } from '../../lib/paths';
   import type {
     BodyWeightEntry,
     UserProfile,
@@ -78,7 +79,7 @@
     try {
       const profiles = await all<UserProfile>('user_profile');
       if (profiles[0]?.onboarding_completed_at) {
-        location.href = '/';
+        location.href = href('/');
         return;
       }
       existing = profiles[0];
@@ -192,7 +193,7 @@
         showProgramModal = true;
         return;
       }
-      location.href = '/';
+      location.href = href('/');
     } catch (err) {
       console.error('[workoutt onboarding] failed to save:', err);
       submitError =
@@ -360,10 +361,10 @@
           you'll finish with workouts on your schedule.
         </p>
         <div class="modal-actions">
-          <button type="button" class="btn" onclick={() => (location.href = '/')}>
+          <button type="button" class="btn" onclick={() => (location.href = href('/'))}>
             Not now, take me home
           </button>
-          <button type="button" class="btn btn-primary" onclick={() => (location.href = '/setup-program/')}>
+          <button type="button" class="btn btn-primary" onclick={() => (location.href = href('/setup-program/'))}>
             Yes, walk me through it
           </button>
         </div>

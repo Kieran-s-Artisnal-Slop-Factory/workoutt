@@ -12,7 +12,16 @@ import {   startProgram,
   getActiveProgram,
   skipWorkout, } from '../services/workouts';
 import { byIndex } from './repo';
-import type { Program, ProgramTemplate, Workout, WorkoutExercise, WorkoutSet } from './types';
+import type {
+  BodyPart,
+  MeasurementType,
+  Program,
+  ProgramTemplate,
+  Workout,
+  WorkoutExercise,
+  WorkoutSet,
+  WorkoutTemplate,
+} from './types';
 
 function isoAtNoon(localDate: string): string {
   const d = parseLocalDate(localDate);
@@ -20,7 +29,18 @@ function isoAtNoon(localDate: string): string {
   return d.toISOString();
 }
 
-export async function seedSampleData(): Promise<string> {
+export type SeedType = 'simple' | 'heavy';
+
+/**
+ * Dev seed entry point. 'simple' loads a realistic small dataset; 'heavy'
+ * loads enough data to exercise the pagination limits (250+ exercises, 250+
+ * past workouts, 45+ derived records).
+ */
+export async function seedSampleData(type: SeedType = 'simple'): Promise<string> {
+  return type === 'heavy' ? seedHeavy() : seedSimple();
+}
+
+async function seedSimple(): Promise<string> {
   const existing = await all<Exercise>('exercises');
   if (existing.length > 0) {
     return 'Seed skipped: exercises already exist. Import/export or clear site data first.';
@@ -578,4 +598,161 @@ export async function seedSampleData(): Promise<string> {
   await bulkPut('body_weight_entries', weights);
 
   return `Seeded ${Object.keys(ex).length+Object.keys(extraExercises).length} exercises, ${3+extraTemplates.length} workout templates, 3 programs, and ${weights.length} weight entries.`;
+}
+
+/**
+ * Heavy-usage seed: deliberately large so every paginated page overflows —
+ * 300 exercises (exercises page paginates at 250), 300 completed workouts
+ * (history paginates at 250), and 60 record-bearing exercises (records
+ * paginate at 45). Rows are built directly and bulk-inserted rather than
+ * driven through the workout services, which would be far too slow at this
+ * volume.
+ */
+async function seedHeavy(): Promise<string> {
+  const existing = await all<Exercise>('exercises');
+  if (existing.length > 0) {
+    return 'Seed skipped: exercises already exist. Import/export or clear site data first.';
+  }
+
+  const profiles = await all<UserProfile>('user_profile');
+  if (profiles.length === 0) {
+    await put(
+      'user_profile',
+      withSyncFields({
+        name: null,
+        highlighted_exercise_ids: [],
+        display_weight_unit: 'kg' as const,
+        display_distance_unit: 'km' as const,
+        age_years: 30,
+        height_cm: 180,
+        experience_level: 'advanced' as const,
+        weight_tracking_enabled: true,
+        onboarding_completed_at: nowIso(),
+      })
+    );
+  }
+
+  const BODY_PART_POOL: BodyPart[] = [
+    'chest', 'back', 'lats', 'traps', 'shoulders', 'biceps', 'triceps',
+    'forearms', 'quads', 'hamstrings', 'glutes', 'calves', 'core',
+  ];
+  const TOTAL_EXERCISES = 300;
+  const RECORD_POOL_SIZE = 60; // > 45 so the records page paginates
+  const TOTAL_WORKOUTS = 300; // > 250 so the history page paginates
+
+  // --- Exercises. The first RECORD_POOL_SIZE are weight_reps (they'll get
+  // completed sets and therefore records); the rest are varied filler so the
+  // exercises page has plenty to page through.
+  const FILLER_TYPES: MeasurementType[] = ['weight_reps', 'reps', 'time', 'distance', 'distance_time', 'weight_time'];
+  const exerciseRows: (Exercise & { id: string })[] = [];
+  for (let i = 0; i < TOTAL_EXERCISES; i++) {
+    const isRecordPool = i < RECORD_POOL_SIZE;
+    const bodyParts = [BODY_PART_POOL[i % BODY_PART_POOL.length]];
+    exerciseRows.push(
+      withSyncFields({
+        name: `Exercise ${String(i + 1).padStart(3, '0')}`,
+        body_parts: bodyParts,
+        description: 'Generated for heavy-usage testing.',
+        video_url: null,
+        image_urls: [],
+        measurement_type: isRecordPool ? ('weight_reps' as const) : FILLER_TYPES[i % FILLER_TYPES.length],
+      })
+    ) as Exercise & { id: string };
+  }
+  await bulkPut('exercises', exerciseRows);
+  const recordPool = exerciseRows.slice(0, RECORD_POOL_SIZE);
+
+  // --- Templates (each pulls 4 exercises from the record pool).
+  const TEMPLATE_COUNT = 15;
+  const templateRows: (WorkoutTemplate & { id: string })[] = [];
+  const templateExerciseRows: unknown[] = [];
+  for (let t = 0; t < TEMPLATE_COUNT; t++) {
+    const tpl = withSyncFields({
+      name: `Program Day ${String(t + 1).padStart(2, '0')}`,
+      description: 'Generated template.',
+    }) as WorkoutTemplate & { id: string };
+    templateRows.push(tpl);
+    for (let p = 0; p < 4; p++) {
+      const ex = recordPool[(t * 4 + p) % recordPool.length];
+      templateExerciseRows.push(
+        withSyncFields({
+          workout_template_id: tpl.id,
+          exercise_id: ex.id,
+          position: p,
+          set_count: 3,
+          superset_group: null,
+          target_reps: 8,
+          target_weight_kg: 40,
+          target_time_seconds: null,
+          target_distance_km: null,
+        })
+      );
+    }
+  }
+  await bulkPut('workout_templates', templateRows);
+  await bulkPut('workout_template_exercises', templateExerciseRows);
+
+  // --- Completed workouts spread over the past ~300 days, each with 3
+  // exercises from the record pool and 3 sets with weights that climb over
+  // time so the records show progressions.
+  const workoutRows: unknown[] = [];
+  const workoutExerciseRows: unknown[] = [];
+  const workoutSetRows: unknown[] = [];
+  for (let w = 0; w < TOTAL_WORKOUTS; w++) {
+    const daysAgo = TOTAL_WORKOUTS - w; // oldest first
+    const date = addDays(todayLocal(), -daysAgo);
+    const completedAt = isoAtNoon(date);
+    const template = templateRows[w % TEMPLATE_COUNT];
+    const workout = withSyncFields({
+      program_id: null,
+      workout_template_id: template.id,
+      name: template.name,
+      scheduled_on: null,
+      original_scheduled_on: null,
+      state: 'completed' as const,
+      started_at: completedAt,
+      completed_at: completedAt,
+    }) as Workout & { id: string };
+    workoutRows.push(workout);
+
+    for (let p = 0; p < 3; p++) {
+      const ex = recordPool[(w * 3 + p) % recordPool.length];
+      const we = withSyncFields({
+        workout_id: workout.id,
+        exercise_id: ex.id,
+        position: p,
+        superset_group: null,
+      }) as WorkoutExercise & { id: string };
+      workoutExerciseRows.push(we);
+      for (let s = 0; s < 3; s++) {
+        // Weight climbs with the workout index → PR progression over time.
+        const weight = 40 + Math.floor(w / 20) * 2.5 + (p % 3) * 5;
+        workoutSetRows.push(
+          withSyncFields({
+            workout_exercise_id: we.id,
+            position: s,
+            completed: true,
+            reps: 8,
+            weight_kg: weight,
+            time_seconds: null,
+            distance_km: null,
+          })
+        );
+      }
+    }
+  }
+  await bulkPut('workouts', workoutRows);
+  await bulkPut('workout_exercises', workoutExerciseRows);
+  await bulkPut('workout_sets', workoutSetRows);
+
+  // --- A year of weekly body-weight entries.
+  const bodyWeights = Array.from({ length: 52 }, (_, i) =>
+    withSyncFields({
+      weight_kg: Math.round((88 - i * 0.08) * 10) / 10,
+      measured_on: addDays(todayLocal(), -7 * (51 - i)),
+    })
+  );
+  await bulkPut('body_weight_entries', bodyWeights);
+
+  return `Heavy seed: ${TOTAL_EXERCISES} exercises, ${TEMPLATE_COUNT} templates, ${TOTAL_WORKOUTS} completed workouts (${RECORD_POOL_SIZE} exercises with records), ${bodyWeights.length} weight entries.`;
 }

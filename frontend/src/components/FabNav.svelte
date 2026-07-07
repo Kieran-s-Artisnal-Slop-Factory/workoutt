@@ -3,11 +3,13 @@
    * Floating action button that expands into a stack of quick actions.
    * Pass `actions` to customize per page; defaults to global quick-nav.
    */
+  import { href } from '../lib/paths';
+
   let {
     actions = [
-      { href: '/workout/', label: 'Start workout' },
-      { href: '/exercises/', label: 'New exercise' },
-      { href: '/workouts/', label: 'New template' },
+      { href: href('/workout/'), label: 'Start workout' },
+      { href: href('/exercises/'), label: 'New exercise' },
+      { href: href('/workouts/'), label: 'New template' },
     ],
   } = $props();
 

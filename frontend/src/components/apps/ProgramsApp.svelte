@@ -10,6 +10,7 @@
   import { computeRecords, type ExerciseRecords } from '../../lib/services/records';
   import { formatDate, WEEKDAYS_SHORT } from '../../lib/utils/dates';
   import { formatWeight } from '../../lib/utils/units';
+  import { href } from '../../lib/paths';
   import type {
     BodyWeightEntry,
     Program,
@@ -258,7 +259,7 @@
 {:else}
   {#if workoutTemplates.length === 0}
     <p class="muted" style="margin-bottom: var(--space-4);">
-      <a href="/workouts/">Create workout templates</a> first — programs are built from them.
+      <a href={href('/workouts/')}>Create workout templates</a> first — programs are built from them.
     </p>
   {/if}
 

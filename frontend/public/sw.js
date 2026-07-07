@@ -9,12 +9,16 @@
  *
  * Bump CACHE_VERSION to invalidate everything after a breaking change.
  */
-const CACHE_VERSION = 'workoutt-v2';
+const CACHE_VERSION = 'workoutt-v3';
+
+// The app may be hosted under a sub-path (e.g. GitHub Pages /workoutt/). The
+// SW file lives at `<base>sw.js`, so its own path yields the base.
+const BASE = self.location.pathname.replace(/sw\.js$/, ''); // '/' or '/workoutt/'
 
 // Never cache dev-server module URLs — serving them stale breaks the app
 // after code changes. (The worker shouldn't be registered in dev at all,
 // but belt and braces.)
-const UNCACHEABLE = [/^\/src\//, /^\/@/, /^\/node_modules\//];
+const UNCACHEABLE = [/\/src\//, /\/@/, /\/node_modules\//];
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -44,7 +48,7 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() =>
-          caches.match(request).then((cached) => cached || caches.match('/'))
+          caches.match(request).then((cached) => cached || caches.match(BASE))
         )
     );
     return;

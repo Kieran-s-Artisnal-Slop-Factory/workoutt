@@ -12,6 +12,7 @@
   import { BODY_PARTS, MEASUREMENT_TYPES } from '../../lib/db/types';
   import type { BodyPart, Exercise, MeasurementType, ProgramTemplate } from '../../lib/db/types';
   import { WEEKDAYS_SHORT } from '../../lib/utils/dates';
+  import { href } from '../../lib/paths';
   import Card from '../Card.svelte';
 
   const MEASUREMENT_LABELS: Record<MeasurementType, string> = {
@@ -293,10 +294,10 @@
     </p>
     <p class="muted" style="margin-bottom: var(--space-3);">
       You can refine everything later: targets and supersets in
-      <a href="/workouts/">Workouts</a>, exercise details in
-      <a href="/exercises/">Exercises</a>.
+      <a href={href('/workouts/')}>Workouts</a>, exercise details in
+      <a href={href('/exercises/')}>Exercises</a>.
     </p>
-    <a class="btn btn-primary" href="/">Go to your homepage</a>
+    <a class="btn btn-primary" href={href('/')}>Go to your homepage</a>
   </Card>
 {:else if step === 0}
   <Card title="Set up your first program">

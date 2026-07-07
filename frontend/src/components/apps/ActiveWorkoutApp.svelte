@@ -13,6 +13,7 @@
   import { computeRecords } from '../../lib/services/records';
   import { kgToDisplay, displayToKg, kmToDisplay, displayToKm, formatWeight, formatDistance, formatDuration } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
+  import { href } from '../../lib/paths';
   import type {
     Exercise,
     MeasurementType,
@@ -118,7 +119,7 @@
     if (!nextScheduled || busy) return;
     busy = true;
     await startWorkout($state.snapshot(nextScheduled) as Workout);
-    location.replace(`/workout/?id=${nextScheduled.id}`);
+    location.replace(href(`/workout/?id=${nextScheduled.id}`));
   }
 
   async function loadItems() {
@@ -142,7 +143,7 @@
     if (!template || busy) return;
     busy = true;
     const w = await startAdhocWorkout(template);
-    location.replace(`/workout/?id=${w.id}`);
+    location.replace(href(`/workout/?id=${w.id}`));
   }
 
   function num(e: Event): number | null {
@@ -330,7 +331,7 @@
     } catch (err) {
       console.error('[workoutt] workout summary failed:', err);
     }
-    location.href = '/';
+    location.href = href('/');
   }
 
   /** Finished editing a previously-completed workout (changes already saved). */
@@ -347,7 +348,7 @@
     if (!confirm('Abandon this workout? It will be discarded entirely.')) return;
     busy = true;
     await abandonWorkout($state.snapshot(workout) as Workout);
-    location.href = '/';
+    location.href = href('/');
   }
 
   function summarizeSet(s: WorkoutSet): string {
@@ -392,7 +393,7 @@
       {#if templates.length === 0}
         <p class="muted">
           No workout in progress and no templates to start from —
-          <a href="/workouts/">create a template</a> first.
+          <a href={href('/workouts/')}>create a template</a> first.
         </p>
       {:else}
         <p class="muted" style="margin-bottom: var(--space-3);">
@@ -426,7 +427,7 @@
       </div>
     {/each}
     <div class="header-actions">
-      <a class="btn" href="/">Back home</a>
+      <a class="btn" href={href('/')}>Back home</a>
       <button class="btn btn-primary" onclick={() => (editing = true)}>Edit workout</button>
     </div>
   </Card>

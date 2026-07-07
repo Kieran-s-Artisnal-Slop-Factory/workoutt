@@ -6,6 +6,7 @@
    */
   import { onMount } from 'svelte';
   import { getSyncStatus, getSyncMode, SYNC_EVENT } from '../lib/sync';
+  import { href } from '../lib/paths';
 
   const DISMISS_KEY = 'workoutt-warnings-dismissed';
 
@@ -58,7 +59,7 @@
   <div class="banner" role="alert">
     <div class="messages">
       {#each warnings as warning (warning.id)}
-        <p>⚠️ {warning.text} <a href="/settings/">Open Settings</a></p>
+        <p>⚠️ {warning.text} <a href={href('/settings/')}>Open Settings</a></p>
       {/each}
     </div>
     <button class="dismiss" onclick={dismiss} aria-label="Dismiss warnings for this session">✕</button>

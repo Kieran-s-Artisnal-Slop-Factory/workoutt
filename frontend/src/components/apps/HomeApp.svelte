@@ -15,6 +15,7 @@
   import { formatDuration } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
   import { formatDate, todayLocal, daysBetween, addDays, dayOfWeek, WEEKDAYS_SHORT } from '../../lib/utils/dates';
+  import { href } from '../../lib/paths';
   import type {
     Exercise,
     Program,
@@ -69,7 +70,7 @@
   onMount(async () => {
     profile = (await all<UserProfile>('user_profile'))[0];
     if (!profile?.onboarding_completed_at) {
-      location.href = '/onboarding/';
+      location.href = href('/onboarding/');
       return;
     }
     greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)](profile.name ?? null);
@@ -124,7 +125,7 @@
     if (!nextWorkout || busy) return;
     busy = true;
     if (nextWorkout.state === 'scheduled') await startWorkout($state.snapshot(nextWorkout) as Workout);
-    location.href = `/workout/?id=${nextWorkout.id}`;
+    location.href = href(`/workout/?id=${nextWorkout.id}`);
   }
 
   async function skipNext() {
@@ -141,7 +142,7 @@
     if (!template || busy) return;
     busy = true;
     const workout = await startAdhocWorkout($state.snapshot(template) as WorkoutTemplate);
-    location.href = `/workout/?id=${workout.id}`;
+    location.href = href(`/workout/?id=${workout.id}`);
   }
 
   function scheduleLabel(w: Workout): string {
@@ -315,7 +316,7 @@
             </div>
           {:else}
             <p class="muted" style="margin-top: var(--space-2);">
-              <a href="/workouts/">Create a workout template</a> to get going.
+              <a href={href('/workouts/')}>Create a workout template</a> to get going.
             </p>
           {/if}
         {/if}
@@ -338,7 +339,7 @@
           </div>
         {:else}
           <p class="muted">No active program.</p>
-          <a class="btn" href="/programs/" style="margin-top: var(--space-3);">Set up a program</a>
+          <a class="btn" href={href('/programs/')} style="margin-top: var(--space-3);">Set up a program</a>
         {/if}
       </Card>
     </div>
@@ -411,7 +412,7 @@
             </tbody>
           </table>
         </div>
-        <a class="btn" href="/records/" style="margin-top: var(--space-3);">All records</a>
+        <a class="btn" href={href('/records/')} style="margin-top: var(--space-3);">All records</a>
       </Card>
     {/if}
   </div>

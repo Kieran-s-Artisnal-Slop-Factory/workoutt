@@ -3,9 +3,10 @@
   import { all, put } from '../../lib/db/repo';
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData, clearAllData, SCOPE_LABELS, type ExportScope } from '../../lib/db/export';
-  import { seedSampleData } from '../../lib/db/seed';
+  import { seedSampleData, type SeedType } from '../../lib/db/seed';
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
   import { formatTimestamp } from '../../lib/utils/dates';
+  import { href } from '../../lib/paths';
   import type { UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
 
@@ -42,7 +43,7 @@
       return;
     }
     await clearAllData();
-    location.href = './onboarding';
+    location.href = href('/onboarding/');
   }
 
   function applyTheme() {
@@ -146,12 +147,17 @@
     }
   }
 
-  async function runSeed() {
-    const seedInfo = await seedSampleData();
+  let seeding = $state(false);
+
+  async function runSeed(type: SeedType) {
+    seeding = true;
+    message = type === 'heavy' ? 'Loading heavy dataset… this can take a moment.' : 'Loading sample data…';
+    const seedInfo = await seedSampleData(type);
     message = seedInfo;
-    if (syncUrl){
-      await runSync(true) // Modifies message state in the call when seeded is true
-    } 
+    if (syncUrl) {
+      await runSync(true); // Modifies message state in the call when seeded is true
+    }
+    seeding = false;
   }
 </script>
 
@@ -202,7 +208,7 @@
       </Card>
     {:else}
       <Card title="Preferences">
-        <p class="muted">No profile yet — <a href="./onboarding">run onboarding</a>.</p>
+        <p class="muted">No profile yet — <a href={href('/onboarding/')}>run onboarding</a>.</p>
       </Card>
     {/if}
 
@@ -302,10 +308,18 @@
         <p class="muted" style="margin-bottom: var(--space-3);">
           Load sample data for trying the app out, or wipe everything on this
           device (exports in the Backup section above are your only undo).
+          The <strong>simple</strong> seed is a realistic small dataset; the
+          <strong>heavy usage</strong> seed loads hundreds of exercises,
+          workouts, and records to exercise the paginated pages.
         </p>
         <div class="actions">
-          <button class="btn" onclick={runSeed}>Load sample data</button>
-          <button class="btn btn-danger" onclick={clearData}>Clear all data</button>
+          <button class="btn" onclick={() => runSeed('simple')} disabled={seeding}>
+            Load simple seed
+          </button>
+          <button class="btn" onclick={() => runSeed('heavy')} disabled={seeding}>
+            Load heavy usage seed
+          </button>
+          <button class="btn btn-danger" onclick={clearData} disabled={seeding}>Clear all data</button>
         </div>
       {/if}
     </Card>

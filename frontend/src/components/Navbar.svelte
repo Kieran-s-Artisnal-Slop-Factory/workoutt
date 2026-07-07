@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import { href } from '../lib/paths';
 
   let { currentPath = '/' } = $props();
   let open = $state(false);
@@ -21,20 +22,20 @@
   });
 
   const links = [
-    { href: '/', label: 'Home' },
-    { href: '/exercises/', label: 'Exercises' },
-    { href: '/workouts/', label: 'Workouts' },
-    { href: '/programs/', label: 'Programs' },
-    { href: '/records/', label: 'Records' },
-    { href: '/settings/', label: 'Settings' },
+    { href: href('/'), label: 'Home' },
+    { href: href('/exercises/'), label: 'Exercises' },
+    { href: href('/workouts/'), label: 'Workouts' },
+    { href: href('/programs/'), label: 'Programs' },
+    { href: href('/records/'), label: 'Records' },
+    { href: href('/settings/'), label: 'Settings' },
   ];
 
   const normalize = (p) => p.replace(/\/+$/, '') || '/';
-  const isCurrent = (href) => normalize(href) === normalize(currentPath);
+  const isCurrent = (linkHref) => normalize(linkHref) === normalize(currentPath);
 </script>
 
 <header class="navbar">
-  <a class="brand" href="/">work<span>outt</span></a>
+  <a class="brand" href={href('/')}>work<span>outt</span></a>
 
   {#if !online}
     <span class="offline-badge" title="You're offline — everything keeps working from this device">
