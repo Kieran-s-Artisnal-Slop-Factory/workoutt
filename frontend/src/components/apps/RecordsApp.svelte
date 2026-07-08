@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { all, put, withSyncFields } from '../../lib/db/repo';
+  import { all, put, softDelete, withSyncFields } from '../../lib/db/repo';
   import { computeRecords, type ExerciseRecords, type RecordEntry } from '../../lib/services/records';
   import { formatWeight, kgToDisplay, displayToKg } from '../../lib/utils/units';
   import { formatRecordValue } from '../../lib/utils/records-format';
@@ -12,12 +12,19 @@
   import Pagination from '../Pagination.svelte';
 
   const PAGE_SIZE = 45;
+  const WEIGHT_HISTORY_PAGE_SIZE = 12;
 
   let loading = $state(true);
   let records: ExerciseRecords[] = $state([]);
   let profile: UserProfile | undefined = $state();
   let weightEntries: BodyWeightEntry[] = $state([]);
   let newWeight: number | '' = $state('');
+
+  // Inline editing of a past body-weight entry.
+  let editingWeightId: string | null = $state(null);
+  let editWeightValue: number | '' = $state('');
+  let editWeightDate = $state('');
+  let weightHistoryPage = $state(0);
 
   onMount(refresh);
 
@@ -86,6 +93,47 @@
       await put('body_weight_entries', withSyncFields({ weight_kg: kg, measured_on: today }));
     }
     newWeight = '';
+    await refresh();
+  }
+
+  // --- Editing / deleting past entries.
+  const weightHistory = $derived(
+    [...weightEntries].sort((a, b) => b.measured_on.localeCompare(a.measured_on))
+  );
+  const pagedWeightHistory = $derived(
+    weightHistory.slice(
+      weightHistoryPage * WEIGHT_HISTORY_PAGE_SIZE,
+      (weightHistoryPage + 1) * WEIGHT_HISTORY_PAGE_SIZE
+    )
+  );
+
+  function startEditWeight(entry: BodyWeightEntry) {
+    editingWeightId = entry.id;
+    editWeightValue = Math.round(kgToDisplay(entry.weight_kg, wu) * 10) / 10;
+    editWeightDate = entry.measured_on;
+  }
+
+  function cancelEditWeight() {
+    editingWeightId = null;
+    editWeightValue = '';
+    editWeightDate = '';
+  }
+
+  async function saveEditWeight(entry: BodyWeightEntry) {
+    if (editWeightValue === '' || !editWeightDate) return;
+    await put('body_weight_entries', {
+      ...($state.snapshot(entry) as BodyWeightEntry),
+      weight_kg: displayToKg(Number(editWeightValue), wu),
+      measured_on: editWeightDate,
+    });
+    cancelEditWeight();
+    await refresh();
+  }
+
+  async function deleteWeight(entry: BodyWeightEntry) {
+    if (!confirm(`Delete the weight entry from ${formatDate(entry.measured_on)}?`)) return;
+    await softDelete('body_weight_entries', entry.id);
+    if (editingWeightId === entry.id) cancelEditWeight();
     await refresh();
   }
 </script>
@@ -165,6 +213,55 @@
           />
           <button class="btn btn-primary" type="submit" disabled={newWeight === ''}>Log</button>
         </form>
+
+        {#if weightEntries.length > 0}
+          <div style="margin-top: var(--space-3);">
+            <Accordion summary={`History (${weightEntries.length} ${weightEntries.length === 1 ? 'entry' : 'entries'})`}>
+              <ul class="weight-history">
+                {#each pagedWeightHistory as entry (entry.id)}
+                  <li>
+                    {#if editingWeightId === entry.id}
+                      <div class="wh-edit">
+                        <input
+                          type="date"
+                          bind:value={editWeightDate}
+                          aria-label="Entry date"
+                        />
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="1"
+                          bind:value={editWeightValue}
+                          aria-label={`Weight (${wu})`}
+                        />
+                        <span class="wh-unit">{wu}</span>
+                        <button class="btn btn-primary" onclick={() => saveEditWeight(entry)} disabled={editWeightValue === '' || !editWeightDate}>
+                          Save
+                        </button>
+                        <button class="btn" onclick={cancelEditWeight}>Cancel</button>
+                      </div>
+                    {:else}
+                      <div class="wh-row">
+                        <span class="wh-date">{formatDate(entry.measured_on)}</span>
+                        <span class="wh-weight">{formatWeight(entry.weight_kg, wu)}</span>
+                        <div class="wh-actions">
+                          <button class="btn" onclick={() => startEditWeight(entry)}>Edit</button>
+                          <button class="btn btn-danger" onclick={() => deleteWeight(entry)}>Delete</button>
+                        </div>
+                      </div>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+              <Pagination
+                total={weightHistory.length}
+                pageSize={WEIGHT_HISTORY_PAGE_SIZE}
+                bind:page={weightHistoryPage}
+                label="entries"
+              />
+            </Accordion>
+          </div>
+        {/if}
       </Card>
     {/if}
 
@@ -196,6 +293,77 @@
     display: flex;
     gap: var(--space-2);
     margin-top: var(--space-3);
+  }
+
+  .weight-history {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .weight-history li {
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .weight-history li:last-child {
+    border-bottom: none;
+  }
+
+  .wh-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .wh-date {
+    flex: 1;
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+  }
+
+  .wh-weight {
+    font-weight: 700;
+  }
+
+  .wh-actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .wh-actions .btn {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-sm);
+  }
+
+  .wh-edit {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .wh-edit input[type='date'] {
+    width: auto;
+    flex: 1 1 9rem;
+  }
+
+  .wh-edit input[type='number'] {
+    width: auto;
+    flex: 0 1 5rem;
+  }
+
+  .wh-unit {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+  }
+
+  .wh-edit .btn {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-sm);
   }
 
   .rec-head {
