@@ -11,6 +11,15 @@
   import Card from '../Card.svelte';
 
   type Theme = 'system' | 'light' | 'dark';
+  type ColorTheme = 'default' | 'vigor' | 'nightlife' | 'earthy' | 'aquatic';
+
+  const COLOR_THEMES: { value: ColorTheme; label: string }[] = [
+    { value: 'default', label: 'Ember (default) — orange' },
+    { value: 'vigor', label: 'Vigor — red' },
+    { value: 'nightlife', label: 'Nightlife — neon purple' },
+    { value: 'earthy', label: 'Earthy — brown & green' },
+    { value: 'aquatic', label: 'Aquatic — blue' },
+  ];
 
   let loading = $state(true);
   let profile: UserProfile | undefined = $state();
@@ -56,6 +65,18 @@
     }
   }
 
+  let colorTheme: ColorTheme = $state('default');
+
+  function applyColorTheme() {
+    if (colorTheme === 'default') {
+      localStorage.removeItem('workoutt-color-theme');
+      delete document.documentElement.dataset.theme;
+    } else {
+      localStorage.setItem('workoutt-color-theme', colorTheme);
+      document.documentElement.dataset.theme = colorTheme;
+    }
+  }
+
   async function runSync(seeded:boolean=false) {
     syncing = true;
     const result = await syncNow();
@@ -86,6 +107,10 @@
     inDeveloperMode = sessionStorage.getItem(DEV_MODE_KEY) === '1';
     const stored = localStorage.getItem('workoutt-theme');
     theme = stored === 'light' || stored === 'dark' ? stored : 'system';
+    const storedColor = localStorage.getItem('workoutt-color-theme');
+    colorTheme = COLOR_THEMES.some((t) => t.value === storedColor)
+      ? (storedColor as ColorTheme)
+      : 'default';
     syncUrl = getSyncUrl();
     syncStatus = await getSyncStatus();
     profile = (await all<UserProfile>('user_profile'))[0];
@@ -213,12 +238,28 @@
     {/if}
 
     <Card title="Appearance">
-      <label for="set-theme">Theme</label>
-      <select id="set-theme" bind:value={theme} onchange={applyTheme}>
-        <option value="system">System (follow OS setting)</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-      </select>
+      <div class="row">
+        <div>
+          <label for="set-theme">Mode</label>
+          <select id="set-theme" bind:value={theme} onchange={applyTheme}>
+            <option value="system">System (follow OS setting)</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+        <div>
+          <label for="set-color-theme">Color theme</label>
+          <select id="set-color-theme" bind:value={colorTheme} onchange={applyColorTheme}>
+            {#each COLOR_THEMES as t}
+              <option value={t.value}>{t.label}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+      <p class="muted" style="margin-top: var(--space-2); font-size: var(--font-size-sm);">
+        Every color theme has a light and a dark variant — the mode picks
+        which one you see.
+      </p>
     </Card>
 
     <Card title="Storage">

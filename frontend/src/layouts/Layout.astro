@@ -33,12 +33,17 @@ const swScope = href('/');
     <link rel="manifest" href={manifestUrl} />
     <title>{title} · Workoutt</title>
     <script is:inline>
-      // Apply the manual theme override before first paint to avoid a flash.
+      // Apply appearance overrides before first paint to avoid a flash.
       // 'light'/'dark' pin the scheme; anything else follows the OS setting.
+      // The color theme swaps the palette via a data-theme attribute.
       try {
         const theme = localStorage.getItem('workoutt-theme');
         if (theme === 'light' || theme === 'dark') {
           document.documentElement.style.colorScheme = theme;
+        }
+        const colorTheme = localStorage.getItem('workoutt-color-theme');
+        if (colorTheme && colorTheme !== 'default') {
+          document.documentElement.dataset.theme = colorTheme;
         }
       } catch {}
     </script>

@@ -1,31 +1,38 @@
 /*
  * Workoutt theme — all configurable design tokens live here.
- * Uses light-dark() so both themes are defined in one place;
- * color-scheme on :root makes the browser honor the user preference.
+ * Uses light-dark() so both variants of every theme are defined in one
+ * place; color-scheme on <html> (Settings → Appearance → Theme) decides
+ * which side applies.
+ *
+ * Color themes: a data-theme attribute on <html> (Settings → Appearance →
+ * Color theme, persisted in localStorage and applied pre-paint from
+ * Layout.astro) swaps the palette. Each theme block overrides the same
+ * color tokens with its own light-dark() pairs, so every theme has a light
+ * and a dark variant for free.
  */
 :root {
   color-scheme: light dark;
 
-  /* Brand */
-  --color-primary: #ff7a1a; /* bright orange, the brand color */
-  --color-primary-strong: #e05e00;
-  --color-primary-soft: light-dark(#fff0e3, #3d2412);
+  /* Brand — Ember (default): bright orange, extra glow in the dark */
+  --color-primary: light-dark(#ff7a1a, #ff8a2b);
+  --color-primary-strong: light-dark(#e05e00, #ffa254);
+  --color-primary-soft: light-dark(#fff0e3, #4d2a10);
   --color-on-primary: #ffffff;
 
   /* Surfaces */
-  --bg-color: light-dark(#faf8f5, #151210);
-  --surface-color: light-dark(#ffffff, #1f1a16);
-  --surface-raised-color: light-dark(#ffffff, #292219);
-  --border-color: light-dark(#e8e2d9, #3d352b);
+  --bg-color: light-dark(#faf8f5, #16100a);
+  --surface-color: light-dark(#ffffff, #241a11);
+  --surface-raised-color: light-dark(#ffffff, #2f2214);
+  --border-color: light-dark(#e8e2d9, #4b3a26);
 
   /* Text */
-  --text-color: light-dark(#241f1a, #f2ede6);
-  --text-muted-color: light-dark(#6d645a, #a99e90);
+  --text-color: light-dark(#241f1a, #f5efe6);
+  --text-muted-color: light-dark(#6d645a, #b7a88f);
 
   /* Feedback */
   --color-success: light-dark(#1a7f37, #4ade80);
-  --color-danger: light-dark(#c62828, #f87171);
-  --color-warning: light-dark(#b45309, #fbbf24);
+  --color-danger: light-dark(#c62828, #ff6b6b);
+  --color-warning: light-dark(#b45309, #fcc419);
 
   /* Typography */
   --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -57,4 +64,69 @@
   /* Layout */
   --page-max-width: 60rem;
   --navbar-height: 3.5rem;
+}
+
+/* ── Vigor — bold reds ─────────────────────────────────────────────── */
+:root[data-theme='vigor'] {
+  --color-primary: light-dark(#dc2626, #ef4444);
+  --color-primary-strong: light-dark(#a51616, #ff8177);
+  --color-primary-soft: light-dark(#fdeaea, #481418);
+  --color-on-primary: #ffffff;
+
+  --bg-color: light-dark(#fbf7f7, #180e10);
+  --surface-color: light-dark(#ffffff, #241518);
+  --surface-raised-color: light-dark(#ffffff, #2f1b1f);
+  --border-color: light-dark(#eedddd, #4f2c31);
+
+  --text-color: light-dark(#261a1b, #f6eaeb);
+  --text-muted-color: light-dark(#70605f, #bca3a5);
+}
+
+/* ── Nightlife — neon purple ───────────────────────────────────────── */
+:root[data-theme='nightlife'] {
+  --color-primary: light-dark(#9333ea, #c052ff);
+  --color-primary-strong: light-dark(#7817cc, #dd99ff);
+  --color-primary-soft: light-dark(#f4e8ff, #3a1356);
+  --color-on-primary: light-dark(#ffffff, #24063a);
+
+  --bg-color: light-dark(#faf7fd, #130a1d);
+  --surface-color: light-dark(#ffffff, #1e112e);
+  --surface-raised-color: light-dark(#ffffff, #281739);
+  --border-color: light-dark(#e8dcf2, #46305f);
+
+  --text-color: light-dark(#221933, #f1e9fa);
+  --text-muted-color: light-dark(#6e6280, #ab97c6);
+}
+
+/* ── Earthy — dark: brown with green accents; light: green with brown
+   accents ──────────────────────────────────────────────────────────── */
+:root[data-theme='earthy'] {
+  --color-primary: light-dark(#7a5230, #74b84e);
+  --color-primary-strong: light-dark(#5c3b1f, #a4e07f);
+  --color-primary-soft: light-dark(#f0e6d8, #223618);
+  --color-on-primary: light-dark(#ffffff, #16330c);
+
+  --bg-color: light-dark(#f4f7ee, #171208);
+  --surface-color: light-dark(#fcfef8, #241b0e);
+  --surface-raised-color: light-dark(#ffffff, #2f2413);
+  --border-color: light-dark(#dde4cd, #4c3d24);
+
+  --text-color: light-dark(#242a18, #f1ebdb);
+  --text-muted-color: light-dark(#69725a, #b2a586);
+}
+
+/* ── Aquatic — blues ───────────────────────────────────────────────── */
+:root[data-theme='aquatic'] {
+  --color-primary: light-dark(#0284c7, #38bdf8);
+  --color-primary-strong: light-dark(#036197, #86d8fc);
+  --color-primary-soft: light-dark(#e1f2fd, #0d3a56);
+  --color-on-primary: light-dark(#ffffff, #06283d);
+
+  --bg-color: light-dark(#f6fafc, #0c141b);
+  --surface-color: light-dark(#ffffff, #142230);
+  --surface-raised-color: light-dark(#ffffff, #1c2d3d);
+  --border-color: light-dark(#dae5ec, #30465a);
+
+  --text-color: light-dark(#1a2530, #e9f1f7);
+  --text-muted-color: light-dark(#5e6f7d, #92a8ba);
 }
