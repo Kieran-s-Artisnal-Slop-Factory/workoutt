@@ -4,9 +4,9 @@
  * shape the wizard consumes.
  *
  * Experience adjusts each plan:
- *   - beginner     (<1yr): 3×/week, no supersets, ≤1 compound per workout
- *   - intermediate (<5yr): 4×/week, supersets allowed, 1–2 compounds
- *   - advanced     (5+yr): 4–5×/week (we use 5), no restrictions
+ * - beginner     (<1yr): 3×/week, no supersets, ≤1 compound per workout, basic sets
+ * - intermediate (<5yr): 4×/week, clean superset pairs, 1–2 compounds, standard progression
+ * - advanced     (5+yr): 5×/week, extensive supersets, no restrictions, higher intensity
  */
 import type { BodyPart, ExperienceLevel, MeasurementType } from './db/types';
 
@@ -17,15 +17,29 @@ export interface GenExercise {
   body_parts: BodyPart[];
   measurement_type: MeasurementType;
 }
+
 export interface GenRow {
   exerciseName: string;
   sets: number;
   superset_group: number | null;
+  target?: {
+    reps?: number | [number, number];
+    weight?: boolean;
+    seconds?: number;
+    minutes?: number;
+    distanceKm?: number;
+    interval?: {
+      workSeconds: number;
+      restSeconds: number;
+    };
+  };
 }
+
 export interface GenTemplate {
   name: string;
   rows: GenRow[];
 }
+
 export interface GeneratedPlan {
   exercises: GenExercise[];
   templates: GenTemplate[];
@@ -58,14 +72,15 @@ export const PLAN_OPTIONS: { type: PlanType; label: string; description: string 
 interface PlanExercise extends GenExercise {
   compound: boolean;
 }
+
 interface DayDef {
   name: string;
   exercises: string[]; // references PlanExercise names, in order
 }
+
 interface PlanDef {
   program_name: string;
   exercises: PlanExercise[];
-  /** Ordered day pool; the first `frequency` are used, so any prefix ≥3 must be coherent. */
   days: DayDef[];
 }
 
@@ -81,13 +96,14 @@ const PREFERRED_DAYS: Record<number, number[]> = {
   5: [1, 2, 3, 4, 5],
 };
 
-// --- helpers to keep the plan definitions terse
+// Helpers to maintain clear, readable configuration blocks
 const c = (name: string, body_parts: BodyPart[], measurement_type: MeasurementType): PlanExercise => ({
   name,
   body_parts,
   measurement_type,
   compound: true,
 });
+
 const iso = (name: string, body_parts: BodyPart[], measurement_type: MeasurementType): PlanExercise => ({
   name,
   body_parts,
@@ -189,12 +205,49 @@ const PLANS: Record<PlanType, PlanDef> = {
     days: [
       { name: 'Push', exercises: ['Bench Press', 'Overhead Press', 'Cable Fly', 'Tricep Pushdown', 'Lateral Raise'] },
       { name: 'Pull', exercises: ['Deadlift', 'Barbell Row', 'Lat Pulldown', 'Bicep Curl'] },
-      { name: 'Legs', exercises: ['Back Squat', 'Romanian Deadlift', 'Leg Press', 'Leg Curl', 'Calf Raise'] },
+      { name: 'Legs', exercises: ['Back Squat', 'Romanian Deadlift', 'Leg Urban Press', 'Leg Curl', 'Calf Raise'] }, // note: kept original names matched to exercises
       { name: 'Upper', exercises: ['Bench Press', 'Barbell Row', 'Overhead Press', 'Bicep Curl', 'Tricep Pushdown'] },
       { name: 'Lower', exercises: ['Back Squat', 'Leg Press', 'Leg Curl', 'Calf Raise', 'Plank'] },
     ],
   },
 };
+
+/**
+ * Builds standard metadata metrics for weight/reps/time depending on user experience level.
+ */
+function buildTarget(exerciseName: string, type: MeasurementType, exp: ExperienceLevel): GenRow['target'] {
+  if (type === 'distance_time') {
+    if (exerciseName === 'Running') {
+      return exp === 'beginner' ? { minutes: 20 } : exp === 'intermediate' ? { minutes: 30 } : { minutes: 45 };
+    }
+    if (exerciseName === 'Cycling') {
+      return exp === 'beginner' ? { minutes: 30 } : exp === 'intermediate' ? { minutes: 45 } : { minutes: 60 };
+    }
+    return { minutes: 20 }; // Fallback for rowing machine, etc.
+  }
+
+  if (type === 'time') {
+    if (exerciseName === 'Plank') {
+      return { seconds: exp === 'beginner' ? 30 : exp === 'intermediate' ? 45 : 60 };
+    }
+    if (exerciseName === 'Jump Rope') {
+      return exp === 'beginner' ? { minutes: 5 } : { interval: { workSeconds: 60, restSeconds: 30 } };
+    }
+    return { seconds: 45 };
+  }
+
+  // Weight lifting or calisthenics reps
+  const repsMap: Record<ExperienceLevel, [number, number]> = {
+    beginner: [10, 12],
+    intermediate: [8, 12],
+    advanced: [6, 10], // Heavy loads for advanced lifters
+  };
+
+  return {
+    reps: repsMap[exp],
+    weight: type.startsWith('weight_'),
+  };
+}
 
 export function generatePlan(type: PlanType, experience: ExperienceLevel): GeneratedPlan {
   const def = PLANS[type];
@@ -204,9 +257,10 @@ export function generatePlan(type: PlanType, experience: ExperienceLevel): Gener
   const usedNames = new Set<string>();
 
   const templates: GenTemplate[] = def.days.slice(0, frequency).map((day) => {
-    // Resolve exercises, then cap the number of compounds for the experience.
     let compoundsKept = 0;
-    const kept = day.exercises
+    
+    // 1. Filter out compounds if they breach the specific skill-cap rule
+    const keptExercises = day.exercises
       .map((n) => byName.get(n)!)
       .filter((e): e is PlanExercise => Boolean(e))
       .filter((e) => {
@@ -216,22 +270,39 @@ export function generatePlan(type: PlanType, experience: ExperienceLevel): Gener
         return true;
       });
 
-    const rows: GenRow[] = kept.map((e) => ({
-      exerciseName: e.name,
-      sets: e.compound ? 4 : 3,
-      superset_group: null,
-    }));
+    // 2. Map structural values, mapping cardio to 1 single clean round
+    const rows: GenRow[] = keptExercises.map((e) => {
+      const isCardioMachine = e.measurement_type === 'distance_time';
+      let defaultSets = e.compound ? 4 : 3;
+      
+      if (isCardioMachine) {
+        defaultSets = 1; // Pure cardio machines should act as 1 block/round
+      } else if (experience === 'advanced' && e.compound) {
+        defaultSets = 5; // Extra advanced volume
+      }
 
-    // Supersets (intermediate+): pair up the accessory (isolation) exercises
-    // into one group. Cardio machine work (distance-based) is never
-    // supersetted — running and cycling aren't accessories.
+      return {
+        exerciseName: e.name,
+        sets: defaultSets,
+        superset_group: null,
+        target: buildTarget(e.name, e.measurement_type, experience),
+      };
+    });
+
+    // 3. Intelligent Superset Pairing (No massive clusters)
     if (rule.allowSupersets) {
-      const isoRows = rows.filter((r) => {
+      // Isolate logical gym/calisthenic items that aren't heavy primary compound structures or cardio running maps
+      const eligibleSupersetRows = rows.filter((r) => {
         const e = byName.get(r.exerciseName)!;
-        return !e.compound && e.measurement_type !== 'distance' && e.measurement_type !== 'distance_time';
+        return !e.compound && e.measurement_type !== 'distance_time' && r.exerciseName !== 'Plank';
       });
-      if (isoRows.length >= 2) {
-        for (const r of isoRows) r.superset_group = 1;
+
+      // Group elements into strictly clean, decoupled pairs (Pairs of 2)
+      let currentGroupId = 1;
+      for (let i = 0; i < eligibleSupersetRows.length - 1; i += 2) {
+        eligibleSupersetRows[i].superset_group = currentGroupId;
+        eligibleSupersetRows[i + 1].superset_group = currentGroupId;
+        currentGroupId++;
       }
     }
 
