@@ -6,7 +6,7 @@
   import { formatRecordValue } from '../../lib/utils/records-format';
   import { formatDate, parseLocalDate, todayLocal, addMonths } from '../../lib/utils/dates';
   import { href } from '../../lib/paths';
-  import type { BodyWeightEntry, UserProfile } from '../../lib/db/types';
+  import type { BodyWeightEntry, Program, UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
   import Accordion from '../Accordion.svelte';
   import LineChart from '../LineChart.svelte';
@@ -20,6 +20,14 @@
   let profile: UserProfile | undefined = $state();
   let weightEntries: BodyWeightEntry[] = $state([]);
   let newWeight: number | '' = $state('');
+
+  // Records tab has two views: 'all' = all-time PRs (the original page),
+  // 'program' = PRs scoped to a single program's run (item 4).
+  let recordView: 'all' | 'program' = $state('all');
+  let programs: Program[] = $state([]);
+  let selectedProgramId = $state('');
+  // PRs recomputed for the selected program's date range (in-range, not global).
+  let programRecords: ExerciseRecords[] = $state([]);
 
   // Inline editing of a past body-weight entry.
   let editingWeightId: string | null = $state(null);
@@ -35,8 +43,76 @@
     weightEntries = (await all<BodyWeightEntry>('body_weight_entries')).sort((a, b) =>
       a.measured_on.localeCompare(b.measured_on)
     );
+    programs = await all<Program>('programs');
+    // Default the By Program picker: current program, else last completed.
+    // (Left empty → "No prior program data available".)
+    if (!selectablePrograms.some((p) => p.id === selectedProgramId)) {
+      selectedProgramId = defaultProgramId;
+    }
     loading = false;
   }
+
+  // Only active and completed programs are selectable (per the spec); most
+  // recent first so the picker opens on the freshest run.
+  const selectablePrograms = $derived(
+    programs
+      .filter((p) => p.state === 'active' || p.state === 'completed')
+      .sort((a, b) => b.started_on.localeCompare(a.started_on))
+  );
+  const defaultProgramId = $derived(
+    selectablePrograms.find((p) => p.state === 'active')?.id ??
+      selectablePrograms.find((p) => p.state === 'completed')?.id ??
+      ''
+  );
+  const selectedProgram = $derived(programs.find((p) => p.id === selectedProgramId));
+  // The window a program "ran for": its start through its end (or today if
+  // still active). Completed sets only exist in the past, so this bounds PRs.
+  const programRange = $derived.by(() => {
+    const p = selectedProgram;
+    if (!p) return null;
+    return { from: p.started_on, to: p.state === 'active' ? todayLocal() : p.ends_on };
+  });
+
+  // Recompute the scoped PRs whenever the selected program (or its range)
+  // changes while the By Program view is active.
+  $effect(() => {
+    const range = programRange;
+    if (recordView !== 'program' || !range) {
+      programRecords = [];
+      return;
+    }
+    let cancelled = false;
+    computeRecords(range).then((r) => {
+      if (!cancelled) programRecords = r;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  // Overall body-weight change for each run of the selected program (item 4.3):
+  // every instance sharing its template (or name, for ad-hoc programs), with
+  // the delta between the first and last weigh-in inside that run's window.
+  const iterations = $derived.by(() => {
+    const p = selectedProgram;
+    if (!p) return [];
+    const sameProgram = (q: Program) =>
+      p.program_template_id ? q.program_template_id === p.program_template_id : q.name === p.name;
+    return programs
+      .filter(sameProgram)
+      .sort((a, b) => a.started_on.localeCompare(b.started_on))
+      .map((inst) => {
+        const from = inst.started_on;
+        const to = inst.state === 'active' ? todayLocal() : inst.ends_on;
+        const inRange = weightEntries.filter(
+          (e) => e.measured_on >= from && e.measured_on <= to
+        );
+        const first = inRange[0];
+        const last = inRange[inRange.length - 1];
+        const deltaKg = first && last && first !== last ? last.weight_kg - first.weight_kg : null;
+        return { inst, from, to, deltaKg };
+      });
+  });
 
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
   const du = $derived(profile?.display_distance_unit ?? 'km');
@@ -302,36 +378,93 @@
       </Card>
     {/if}
 
-    {#if records.length > 0}
-      <input
-        type="search"
-        class="record-search"
-        placeholder="Search records by exercise…"
-        bind:value={recordSearch}
-      />
-    {/if}
+    <div class="records-nav">
+      <label for="rec-view">Records</label>
+      <select id="rec-view" bind:value={recordView}>
+        <option value="all">All Time</option>
+        <option value="program">By Program</option>
+      </select>
+    </div>
 
-    {#if highlightedRecords.length > 0}
-      <h2 class="section-title">Highlighted PRs</h2>
-      {#each highlightedRecords as rec (rec.exercise.id)}
-        {@render recordCard(rec)}
-      {/each}
-    {/if}
+    {#if recordView === 'all'}
+      {#if records.length > 0}
+        <input
+          type="search"
+          class="record-search"
+          placeholder="Search records by exercise…"
+          bind:value={recordSearch}
+        />
+      {/if}
 
-    <h2 class="section-title">Personal records</h2>
-    {#if records.length === 0}
-      <p class="muted">
-        No records yet — they're computed automatically from completed workouts.
-      </p>
-    {:else if matchedRecords.length === 0}
-      <p class="muted">No records match “{recordSearch}”.</p>
-    {:else if otherRecords.length === 0}
-      <p class="muted">All matching records are highlighted above.</p>
+      {#if highlightedRecords.length > 0}
+        <h2 class="section-title">Highlighted PRs</h2>
+        {#each highlightedRecords as rec (rec.exercise.id)}
+          {@render recordCard(rec)}
+        {/each}
+      {/if}
+
+      <h2 class="section-title">Personal records</h2>
+      {#if records.length === 0}
+        <p class="muted">
+          No records yet — they're computed automatically from completed workouts.
+        </p>
+      {:else if matchedRecords.length === 0}
+        <p class="muted">No records match “{recordSearch}”.</p>
+      {:else if otherRecords.length === 0}
+        <p class="muted">All matching records are highlighted above.</p>
+      {:else}
+        {#each pagedOtherRecords as rec (rec.exercise.id)}
+          {@render recordCard(rec)}
+        {/each}
+        <Pagination total={otherRecords.length} pageSize={PAGE_SIZE} bind:page label="records" />
+      {/if}
+    {:else if selectablePrograms.length === 0 || !selectedProgram || !programRange}
+      <p class="muted">No prior program data available.</p>
     {:else}
-      {#each pagedOtherRecords as rec (rec.exercise.id)}
-        {@render recordCard(rec)}
-      {/each}
-      <Pagination total={otherRecords.length} pageSize={PAGE_SIZE} bind:page label="records" />
+      <div class="program-picker">
+        <label for="prog-select">Program</label>
+        <select id="prog-select" bind:value={selectedProgramId}>
+          {#each selectablePrograms as p (p.id)}
+            <option value={p.id}>
+              {p.name} · {formatDate(p.started_on)} – {formatDate(
+                p.state === 'active' ? todayLocal() : p.ends_on
+              )}{p.state === 'active' ? ' (active)' : ''}
+            </option>
+          {/each}
+        </select>
+      </div>
+
+      {#if profile?.weight_tracking_enabled && iterations.length > 0}
+        <Card title="Weight change per run">
+          <ul class="iter-list">
+            {#each iterations as it (it.inst.id)}
+              <li class="iter-row" class:current={it.inst.id === selectedProgramId}>
+                <span class="iter-range">{formatDate(it.from)} – {formatDate(it.to)}</span>
+                {#if it.deltaKg == null}
+                  <span class="muted">not enough weigh-ins</span>
+                {:else}
+                  {@const d = Math.round(kgToDisplay(it.deltaKg, wu) * 10) / 10}
+                  <span class="iter-delta">{d > 0 ? '+' : ''}{d} {wu}</span>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </Card>
+      {/if}
+
+      <h2 class="section-title">
+        PRs during {selectedProgram.name}
+        <span class="muted range-note">
+          ({formatDate(programRange.from)} – {formatDate(programRange.to)})
+        </span>
+      </h2>
+      {#if programRecords.length === 0}
+        <p class="muted">No completed sets recorded during this program run.</p>
+      {:else}
+        {#each programRecords as rec (rec.exercise.id)}
+          {@render recordCard(rec)}
+        {/each}
+      {/if}
     {/if}
   </div>
 {/if}
@@ -350,6 +483,66 @@
 
   .record-search {
     margin-bottom: var(--space-1);
+  }
+
+  .records-nav,
+  .program-picker {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .records-nav label,
+  .program-picker label {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .records-nav select,
+  .program-picker select {
+    flex: 1;
+  }
+
+  .range-note {
+    font-size: var(--font-size-sm);
+    font-weight: 400;
+  }
+
+  .iter-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .iter-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .iter-row:last-child {
+    border-bottom: none;
+  }
+
+  .iter-row.current {
+    font-weight: 700;
+  }
+
+  .iter-range {
+    color: var(--text-muted-color);
+    font-size: var(--font-size-sm);
+  }
+
+  /* Neutral: a workout app has no view on whether gaining or losing is good. */
+  .iter-delta {
+    font-weight: 800;
+    color: var(--color-primary-strong);
   }
 
   .weight-history {

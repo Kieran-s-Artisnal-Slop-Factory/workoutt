@@ -12,7 +12,7 @@
             2. If `enter stats` is selected take the user to a normal workout page for that workout to enter their sets and reps, but on save make sure to complete it on the day they specified
             3. If they hit `submit without stats` treat it as a workout without any sets or reps entered, and complete it on the day they specified
 3. ~~When seeding heavy usage data the programs page is empty~~
-4. Have program records that are PR's per program, not just the global PR system
+4. ~~Have program records that are PR's per program, not just the global PR system~~
     1. Split the current records tab into a drop-down nav with the current records being called `All Time` and one called `By Program`
         1. `All Time` should be the current records page as it is
         2. `By Program` should have a select box at the top, and your records should show only for the time range that program ran for.
