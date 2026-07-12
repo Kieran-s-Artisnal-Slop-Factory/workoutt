@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { all, byIndex, put } from '../../lib/db/repo';
+  import { all, byIndex, get, put } from '../../lib/db/repo';
   import {
     getNextWorkout,
     getActiveProgram,
@@ -12,7 +12,7 @@
   } from '../../lib/services/workouts';
   import { recentPRs, type RecentPR } from '../../lib/services/records';
   import { formatRecordValue } from '../../lib/utils/records-format';
-  import { formatDuration } from '../../lib/utils/units';
+  import { formatDuration, formatWeight, formatDistance } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
   import { formatDate, todayLocal, daysBetween, addDays, dayOfWeek, toLocalDate, WEEKDAYS_SHORT } from '../../lib/utils/dates';
   import { href } from '../../lib/paths';
@@ -21,6 +21,8 @@
     Program,
     UserProfile,
     Workout,
+    WorkoutExercise,
+    WorkoutSet,
     WorkoutTemplate,
     WorkoutTemplateExercise,
   } from '../../lib/db/types';
@@ -40,6 +42,25 @@
   let dragOverDay: string | null = $state(null);
   let busy = $state(false);
   let greeting = $state('Home');
+
+  // Inline reschedule on the next-workout card.
+  let rescheduling = $state(false);
+  let rescheduleDate = $state('');
+
+  // "Read more" detail modal for the next workout.
+  interface DetailExercise {
+    name: string;
+    setCount: number;
+    target: string;
+    superset: number | null;
+  }
+  interface WorkoutDetail {
+    name: string;
+    description: string;
+    exercises: DetailExercise[];
+    lastTime: { date: string; exercises: { name: string; sets: string[] }[] } | null;
+  }
+  let readMore: WorkoutDetail | null = $state(null);
 
   /** One-shot workout summary handed over by the active-workout page. */
   interface WorkoutSummary {
@@ -144,6 +165,105 @@
     busy = true;
     const workout = await startAdhocWorkout($state.snapshot(template) as WorkoutTemplate);
     location.href = href(`/workout/?id=${workout.id}`);
+  }
+
+  function beginReschedule() {
+    if (!nextWorkout) return;
+    rescheduleDate = nextWorkout.scheduled_on ?? today;
+    rescheduling = true;
+  }
+
+  /** Reschedule the next workout via the date picker (counts as a bump). */
+  async function confirmReschedule() {
+    if (!nextWorkout || !rescheduleDate || busy) return;
+    busy = true;
+    const w = $state.snapshot(nextWorkout) as Workout;
+    if (rescheduleDate !== w.scheduled_on) {
+      await put('workouts', {
+        ...w,
+        scheduled_on: rescheduleDate,
+        original_scheduled_on: w.original_scheduled_on ?? w.scheduled_on,
+      });
+    }
+    rescheduling = false;
+    busy = false;
+    await refresh();
+  }
+
+  const wu2 = () => profile?.display_weight_unit ?? 'kg';
+  const du2 = () => profile?.display_distance_unit ?? 'km';
+
+  function describeTarget(te: WorkoutTemplateExercise): string {
+    const parts: string[] = [];
+    if (te.target_reps != null) parts.push(`${te.target_reps} reps`);
+    if (te.target_weight_kg != null) parts.push(formatWeight(te.target_weight_kg, wu2()));
+    if (te.target_time_seconds != null) parts.push(formatDuration(te.target_time_seconds));
+    if (te.target_distance_km != null) parts.push(formatDistance(te.target_distance_km, du2()));
+    return parts.join(' · ');
+  }
+
+  function describeSet(s: WorkoutSet): string {
+    const parts: string[] = [];
+    if (s.weight_kg != null) parts.push(formatWeight(s.weight_kg, wu2()));
+    if (s.reps != null) parts.push(`× ${s.reps}`);
+    if (s.time_seconds != null) parts.push(formatDuration(s.time_seconds));
+    if (s.distance_km != null) parts.push(formatDistance(s.distance_km, du2()));
+    return parts.join(' ') || '—';
+  }
+
+  async function openReadMore() {
+    if (!nextWorkout) return;
+    const w = nextWorkout;
+    const exList = await all<Exercise>('exercises');
+    const exById = new Map(exList.map((e) => [e.id, e]));
+
+    let description = '';
+    let detailExercises: DetailExercise[] = [];
+    if (w.workout_template_id) {
+      const tpl = await get<WorkoutTemplate>('workout_templates', w.workout_template_id);
+      description = tpl?.description ?? '';
+      const tes = (
+        await byIndex<WorkoutTemplateExercise>(
+          'workout_template_exercises',
+          'workout_template_id',
+          w.workout_template_id
+        )
+      ).sort((a, b) => a.position - b.position);
+      detailExercises = tes.map((te) => ({
+        name: exById.get(te.exercise_id)?.name ?? 'Unknown exercise',
+        setCount: te.set_count,
+        target: describeTarget(te),
+        superset: te.superset_group,
+      }));
+    }
+
+    let lastTime: WorkoutDetail['lastTime'] = null;
+    if (w.workout_template_id) {
+      const last = (await all<Workout>('workouts'))
+        .filter(
+          (x) =>
+            x.workout_template_id === w.workout_template_id &&
+            x.id !== w.id &&
+            x.state === 'completed' &&
+            x.completed_at
+        )
+        .sort((a, b) => b.completed_at!.localeCompare(a.completed_at!))[0];
+      if (last) {
+        const wes = (await byIndex<WorkoutExercise>('workout_exercises', 'workout_id', last.id)).sort(
+          (a, b) => a.position - b.position
+        );
+        const exs: { name: string; sets: string[] }[] = [];
+        for (const we of wes) {
+          const sets = (await byIndex<WorkoutSet>('workout_sets', 'workout_exercise_id', we.id))
+            .filter((s) => s.completed)
+            .sort((a, b) => a.position - b.position);
+          exs.push({ name: exById.get(we.exercise_id)?.name ?? 'Unknown exercise', sets: sets.map(describeSet) });
+        }
+        lastTime = { date: toLocalDate(new Date(last.completed_at!)), exercises: exs };
+      }
+    }
+
+    readMore = { name: w.name, description, exercises: detailExercises, lastTime };
   }
 
   function scheduleLabel(w: Workout): string {
@@ -278,6 +398,58 @@
     </div>
   {/if}
 
+  {#if readMore}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="readmore-title">
+      <div class="modal">
+        <h3 id="readmore-title">{readMore.name}</h3>
+        {#if readMore.description}
+          <p class="muted">{readMore.description}</p>
+        {/if}
+
+        {#if readMore.exercises.length > 0}
+          <div>
+            <p class="rm-heading">Planned</p>
+            <ul class="rm-list">
+              {#each readMore.exercises as ex}
+                <li>
+                  <strong>{ex.name}</strong>
+                  <span class="muted">
+                    {ex.setCount} × {ex.target || 'sets'}{#if ex.superset != null} · SS{ex.superset}{/if}
+                  </span>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+
+        <div>
+          <p class="rm-heading">Last time</p>
+          {#if readMore.lastTime}
+            <p class="muted" style="margin-bottom: var(--space-2);">{formatDate(readMore.lastTime.date)}</p>
+            <ul class="rm-list">
+              {#each readMore.lastTime.exercises as ex}
+                <li>
+                  <strong>{ex.name}</strong>
+                  {#if ex.sets.length > 0}
+                    <span class="muted">{ex.sets.join(' · ')}</span>
+                  {:else}
+                    <span class="muted">no sets completed</span>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="muted">You haven't done this workout before.</p>
+          {/if}
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn" onclick={() => (readMore = null)}>Close</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <div class="stack">
     <div class="grid-2">
       <Card title="Next workout">
@@ -305,9 +477,20 @@
               {nextWorkout.state === 'in_progress' ? 'Resume workout' : 'Start workout'}
             </button>
             {#if nextWorkout.state === 'scheduled'}
+              <button class="btn" onclick={beginReschedule} disabled={busy}>Reschedule</button>
               <button class="btn" onclick={skipNext} disabled={busy}>Skip</button>
             {/if}
+            <button class="btn" onclick={openReadMore}>Read more</button>
           </div>
+          {#if rescheduling}
+            <div class="reschedule-row">
+              <input type="date" bind:value={rescheduleDate} aria-label="New date" />
+              <button class="btn btn-primary" onclick={confirmReschedule} disabled={!rescheduleDate || busy}>
+                Move
+              </button>
+              <button class="btn" onclick={() => (rescheduling = false)} disabled={busy}>Cancel</button>
+            </div>
+          {/if}
         {:else}
           <p class="muted">No workout scheduled.</p>
           {#if templates.length > 0}
@@ -487,6 +670,41 @@
     display: flex;
     gap: var(--space-2);
     margin-top: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .reschedule-row {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .reschedule-row input {
+    width: auto;
+    flex: 1 1 9rem;
+  }
+
+  .rm-heading {
+    font-weight: 700;
+    color: var(--color-primary-strong);
+    margin-bottom: var(--space-1);
+  }
+
+  .rm-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .rm-list li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: baseline;
   }
 
   .week-hint {
