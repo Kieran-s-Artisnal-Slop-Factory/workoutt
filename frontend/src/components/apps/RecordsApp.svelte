@@ -40,13 +40,25 @@
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
   const du = $derived(profile?.display_distance_unit ?? 'km');
   const highlightedIds = $derived(new Set(profile?.highlighted_exercise_ids ?? []));
-  const highlightedRecords = $derived(records.filter((r) => highlightedIds.has(r.exercise.id)));
-  const otherRecords = $derived(records.filter((r) => !highlightedIds.has(r.exercise.id)));
+
+  let recordSearch = $state('');
+  const matchedRecords = $derived(
+    recordSearch.trim()
+      ? records.filter((r) => r.exercise.name.toLowerCase().includes(recordSearch.trim().toLowerCase()))
+      : records
+  );
+  const highlightedRecords = $derived(matchedRecords.filter((r) => highlightedIds.has(r.exercise.id)));
+  const otherRecords = $derived(matchedRecords.filter((r) => !highlightedIds.has(r.exercise.id)));
 
   // Pagination applies only to the non-highlighted list; highlighted PRs
   // always show in full above.
   let page = $state(0);
   const pagedOtherRecords = $derived(otherRecords.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+  // Reset to the first page whenever the search changes.
+  $effect(() => {
+    recordSearch;
+    page = 0;
+  });
 
   async function toggleHighlight(exerciseId: string) {
     if (!profile) return;
@@ -265,6 +277,15 @@
       </Card>
     {/if}
 
+    {#if records.length > 0}
+      <input
+        type="search"
+        class="record-search"
+        placeholder="Search records by exercise…"
+        bind:value={recordSearch}
+      />
+    {/if}
+
     {#if highlightedRecords.length > 0}
       <h2 class="section-title">Highlighted PRs</h2>
       {#each highlightedRecords as rec (rec.exercise.id)}
@@ -277,8 +298,10 @@
       <p class="muted">
         No records yet — they're computed automatically from completed workouts.
       </p>
+    {:else if matchedRecords.length === 0}
+      <p class="muted">No records match “{recordSearch}”.</p>
     {:else if otherRecords.length === 0}
-      <p class="muted">All your records are highlighted above.</p>
+      <p class="muted">All matching records are highlighted above.</p>
     {:else}
       {#each pagedOtherRecords as rec (rec.exercise.id)}
         {@render recordCard(rec)}
@@ -293,6 +316,10 @@
     display: flex;
     gap: var(--space-2);
     margin-top: var(--space-3);
+  }
+
+  .record-search {
+    margin-bottom: var(--space-1);
   }
 
   .weight-history {

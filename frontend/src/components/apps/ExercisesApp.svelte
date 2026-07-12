@@ -7,7 +7,7 @@
   import ChipFilter from '../ChipFilter.svelte';
   import Pagination from '../Pagination.svelte';
 
-  const PAGE_SIZE = 250;
+  const PAGE_SIZE = 150;
 
   const MEASUREMENT_LABELS: Record<MeasurementType, string> = {
     reps: 'Reps only',

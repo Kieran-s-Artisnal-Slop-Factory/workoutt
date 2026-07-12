@@ -135,12 +135,14 @@ export interface ProgramTemplateWorkout extends SyncFields {
 export interface Program extends SyncFields {
   program_template_id: string | null;
   name: string;
+  /** Snapshot of the template description at start; editable while running. May be undefined on older rows. */
+  description?: string;
   frequency_per_week: number;
   duration_weeks: number;
   preferred_days: number[];
   /** Local date 'YYYY-MM-DD'. */
   started_on: string;
-  /** Local date 'YYYY-MM-DD'. Never extended by bumps. */
+  /** Local date 'YYYY-MM-DD'. Editable while running (was: never extended by bumps). */
   ends_on: string;
   state: ProgramState;
 }
@@ -160,6 +162,11 @@ export interface Workout extends SyncFields {
   state: WorkoutState;
   started_at: string | null;
   completed_at: string | null;
+  /**
+   * Free-text notes recorded when finishing. Surfaced during the next
+   * workout of the same template. May be undefined on older rows.
+   */
+  notes?: string | null;
 }
 
 export interface WorkoutExercise extends SyncFields {

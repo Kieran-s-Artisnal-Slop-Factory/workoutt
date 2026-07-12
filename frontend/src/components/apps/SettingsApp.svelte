@@ -4,7 +4,7 @@
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData, clearAllData, SCOPE_LABELS, type ExportScope } from '../../lib/db/export';
   import { seedSampleData, type SeedType } from '../../lib/db/seed';
-  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, type SyncStatus } from '../../lib/sync';
+  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, testConnection, type SyncStatus } from '../../lib/sync';
   import { formatTimestamp } from '../../lib/utils/dates';
   import { href } from '../../lib/paths';
   import type { UserProfile } from '../../lib/db/types';
@@ -29,6 +29,15 @@
   let syncUrl = $state('');
   let syncStatus: SyncStatus = $state({ lastSyncAt: null, lastError: null });
   let syncing = $state(false);
+  let testing = $state(false);
+  let testResult: { ok: boolean; message: string } | null = $state(null);
+
+  async function testServer() {
+    testing = true;
+    testResult = null;
+    testResult = await testConnection(syncUrl);
+    testing = false;
+  }
 
   // Developer options are gated: the user must type the exact phrase once
   // per browser session (sessionStorage, so it resets across sessions).
@@ -305,9 +314,19 @@
           placeholder="e.g. http://192.168.1.10:8080"
         />
       </div>
-      <button class="btn btn-primary" onclick={() => runSync()} disabled={syncing}>
-        {syncing ? 'Syncing…' : 'Sync now'}
-      </button>
+      {#if testResult}
+        <p class={testResult.ok ? 'test-ok' : 'test-err'} role="status" style="margin-bottom: var(--space-2);">
+          {testResult.ok ? '✅' : '⚠️'} {testResult.message}
+        </p>
+      {/if}
+      <div class="actions">
+        <button class="btn" onclick={testServer} disabled={testing}>
+          {testing ? 'Testing…' : 'Test connection'}
+        </button>
+        <button class="btn btn-primary" onclick={() => runSync()} disabled={syncing}>
+          {syncing ? 'Syncing…' : 'Sync now'}
+        </button>
+      </div>
     </Card>
 
     <Card title="Backup">
@@ -415,6 +434,16 @@
     border: 1px solid var(--color-primary);
     border-radius: var(--radius-md);
     padding: var(--space-2) var(--space-3);
+  }
+
+  .test-ok {
+    color: var(--color-success);
+    font-size: var(--font-size-sm);
+  }
+
+  .test-err {
+    color: var(--color-danger);
+    font-size: var(--font-size-sm);
   }
 
   .modal-backdrop {

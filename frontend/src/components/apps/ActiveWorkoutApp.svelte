@@ -8,6 +8,7 @@
     startAdhocWorkout,
     finishWorkout,
     abandonWorkout,
+    getLatestTemplateNotes,
   } from '../../lib/services/workouts';
   import { formatDate, daysBetween, todayLocal } from '../../lib/utils/dates';
   import { computeRecords } from '../../lib/services/records';
@@ -47,6 +48,9 @@
   /** Editing an already-completed workout (from history). */
   let editing = $state(false);
   let showFinishConfirm = $state(false);
+  /** Notes for this workout, and notes carried from the last same-template one. */
+  let notes = $state('');
+  let priorNotes: { notes: string; date: string } | null = $state(null);
 
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
   const du = $derived(profile?.display_distance_unit ?? 'km');
@@ -81,6 +85,11 @@
     if (workout) {
       // Deep-link from history: open a completed workout straight into editing.
       if (workout.state === 'completed' && params.get('edit') === '1') editing = true;
+      notes = workout.notes ?? '';
+      // Notes carried over from the previous workout of this template.
+      if (workout.workout_template_id) {
+        priorNotes = await getLatestTemplateNotes(workout.workout_template_id, workout.id);
+      }
       await loadItems();
     } else {
       templates = (await all<WorkoutTemplate>('workout_templates')).sort((a, b) =>
@@ -296,7 +305,7 @@
     showFinishConfirm = false;
     busy = true;
     const startedAt = workout.started_at;
-    await finishWorkout($state.snapshot(workout) as Workout);
+    await finishWorkout({ ...($state.snapshot(workout) as Workout), notes: notes.trim() || null });
 
     // Hand a full overview to the homepage, which shows it as a modal.
     try {
@@ -334,8 +343,15 @@
     location.href = href('/');
   }
 
-  /** Finished editing a previously-completed workout (changes already saved). */
-  function doneEditing() {
+  /** Finished editing a previously-completed workout (persist notes too). */
+  async function doneEditing() {
+    if (workout) {
+      const snap = $state.snapshot(workout) as Workout;
+      const trimmed = notes.trim() || null;
+      if ((snap.notes ?? null) !== trimmed) {
+        workout = await put('workouts', { ...snap, notes: trimmed });
+      }
+    }
     editing = false;
     // Drop the ?edit flag so a refresh shows the read-only view.
     const url = new URL(location.href);
@@ -426,6 +442,12 @@
         </ul>
       </div>
     {/each}
+    {#if workout.notes}
+      <div class="notes-view">
+        <strong>Notes</strong>
+        <p>{workout.notes}</p>
+      </div>
+    {/if}
     <div class="header-actions">
       <a class="btn" href={href('/')}>Back home</a>
       <button class="btn btn-primary" onclick={() => (editing = true)}>Edit workout</button>
@@ -455,6 +477,13 @@
       {/if}
     </div>
   </div>
+
+  {#if priorNotes}
+    <div class="prior-notes" role="note">
+      <strong>📝 Notes from last {workout.name} ({formatDate(priorNotes.date)})</strong>
+      <p>{priorNotes.notes}</p>
+    </div>
+  {/if}
 
   <div class="stack">
     {#each items as item (item.we.id)}
@@ -580,6 +609,18 @@
         <button class="btn" onclick={addExercise} disabled={!addExerciseId}>Add</button>
       </div>
     </Card>
+
+    <Card title="Notes">
+      <p class="muted" style="margin-bottom: var(--space-2); font-size: var(--font-size-sm);">
+        Saved when you finish and shown at the start of your next {workout.name}.
+      </p>
+      <textarea
+        bind:value={notes}
+        rows="3"
+        placeholder="e.g. bumped bench to 62.5kg next time, left knee felt tight…"
+        aria-label="Workout notes"
+      ></textarea>
+    </Card>
   </div>
 
   {#if showFinishConfirm}
@@ -696,6 +737,31 @@
     gap: var(--space-1);
     flex-wrap: wrap;
     margin-top: var(--space-1);
+  }
+
+  .prior-notes {
+    background: var(--color-primary-soft);
+    border: 1px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+
+  .prior-notes p {
+    margin-top: var(--space-1);
+    white-space: pre-wrap;
+  }
+
+  .notes-view {
+    border-top: 1px solid var(--border-color);
+    margin-top: var(--space-2);
+    padding-top: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+
+  .notes-view p {
+    margin-top: var(--space-1);
+    white-space: pre-wrap;
   }
 
   .bp-chip {

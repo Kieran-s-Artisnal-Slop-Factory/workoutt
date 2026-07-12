@@ -249,6 +249,24 @@ function buildTarget(exerciseName: string, type: MeasurementType, exp: Experienc
   };
 }
 
+/**
+ * Every curated exercise across all plan presets, de-duplicated by name.
+ * Used by the walkthrough's "add unused exercises" option to seed a fuller
+ * library regardless of which plan-specific exercises the program uses.
+ */
+export function allPresetExercises(): GenExercise[] {
+  const byName = new Map<string, GenExercise>();
+  for (const def of Object.values(PLANS)) {
+    for (const ex of def.exercises) {
+      if (!byName.has(ex.name)) {
+        const { compound, ...rest } = ex;
+        byName.set(ex.name, rest);
+      }
+    }
+  }
+  return [...byName.values()];
+}
+
 export function generatePlan(type: PlanType, experience: ExperienceLevel): GeneratedPlan {
   const def = PLANS[type];
   const rule = RULES[experience];

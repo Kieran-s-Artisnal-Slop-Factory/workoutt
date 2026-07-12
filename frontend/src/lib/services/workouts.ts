@@ -18,7 +18,7 @@ import type {
   WorkoutTemplate,
   WorkoutTemplateExercise,
 } from '../db/types';
-import { addDays, dayOfWeek, todayLocal } from '../utils/dates';
+import { addDays, dayOfWeek, daysBetween, todayLocal } from '../utils/dates';
 
 /** The single in_progress workout, if any (there should be at most one). */
 export async function getInProgressWorkout(): Promise<Workout | undefined> {
@@ -115,6 +115,30 @@ export async function finishWorkout(workout: Workout): Promise<void> {
 }
 
 /**
+ * Notes from the most recently completed workout of the given template
+ * (excluding a workout id, e.g. the current one), so they can be surfaced
+ * during the next workout of that template.
+ */
+export async function getLatestTemplateNotes(
+  templateId: string,
+  excludeWorkoutId?: string
+): Promise<{ notes: string; date: string } | null> {
+  const prior = (await all<Workout>('workouts'))
+    .filter(
+      (w) =>
+        w.workout_template_id === templateId &&
+        w.id !== excludeWorkoutId &&
+        w.state === 'completed' &&
+        w.completed_at &&
+        typeof w.notes === 'string' &&
+        w.notes.trim() !== ''
+    )
+    .sort((a, b) => b.completed_at!.localeCompare(a.completed_at!));
+  const latest = prior[0];
+  return latest ? { notes: latest.notes!.trim(), date: latest.completed_at!.slice(0, 10) } : null;
+}
+
+/**
  * Abandon a workout: discard all logged progress. A program-scheduled
  * workout goes back to 'scheduled' (it stays on the calendar); an ad-hoc
  * one is discarded entirely.
@@ -162,6 +186,7 @@ export async function startProgram(
     withSyncFields<Omit<Program, keyof import('../db/types').SyncFields>>({
       program_template_id: template.id,
       name: template.name,
+      description: template.description ?? '',
       frequency_per_week: template.frequency_per_week,
       duration_weeks: template.duration_weeks,
       preferred_days: [...template.preferred_days],
@@ -270,6 +295,124 @@ export async function abandonProgram(program: Program): Promise<void> {
   const scheduled = workouts.filter((w) => w.state === 'scheduled');
   await softDeleteMany('workouts', scheduled.map((w) => w.id));
   await put('programs', { ...program, state: 'abandoned' });
+}
+
+/**
+ * The rotation (ordered, de-duplicated template ids) a program currently
+ * uses. Derived from the program's OWN workouts so it reflects mid-program
+ * edits — upcoming scheduled ones first (the live rotation), else all of
+ * them, else the source template as a last resort.
+ */
+export async function programRotation(program: Program): Promise<string[]> {
+  const ws = (await byIndex<Workout>('workouts', 'program_id', program.id))
+    .filter((w) => w.workout_template_id && w.scheduled_on)
+    .sort((a, b) => a.scheduled_on!.localeCompare(b.scheduled_on!));
+
+  const scheduled = ws.filter((w) => w.state === 'scheduled');
+  const source = scheduled.length > 0 ? scheduled : ws;
+  const seen = new Set<string>();
+  const order: string[] = [];
+  for (const w of source) {
+    if (!seen.has(w.workout_template_id!)) {
+      seen.add(w.workout_template_id!);
+      order.push(w.workout_template_id!);
+    }
+  }
+  if (order.length > 0) return order;
+
+  // Program has no dated workouts (edge case) — fall back to the template.
+  if (program.program_template_id) {
+    const rows = (
+      await byIndex<ProgramTemplateWorkout>(
+        'program_template_workouts',
+        'program_template_id',
+        program.program_template_id
+      )
+    ).sort((a, b) => a.position - b.position);
+    return rows.map((r) => r.workout_template_id);
+  }
+  return [];
+}
+
+/** Generate scheduled workouts for a program from `fromDate` through ends_on. */
+async function generateProgramWorkouts(
+  program: Program,
+  rotationTemplateIds: string[],
+  fromDate: string
+): Promise<void> {
+  if (rotationTemplateIds.length === 0) return;
+  const templatesById = new Map<string, WorkoutTemplate>();
+  for (const wt of await all<WorkoutTemplate>('workout_templates')) templatesById.set(wt.id, wt);
+
+  const days = [...program.preferred_days].sort((a, b) => a - b);
+  const perWeek = Math.min(program.frequency_per_week, days.length || 7);
+  const weekStart = addDays(fromDate, -dayOfWeek(fromDate));
+  let rotationIdx = 0;
+
+  for (let week = 0; week < 520; week++) {
+    if (addDays(weekStart, week * 7) > program.ends_on) break;
+    for (let d = 0; d < perWeek; d++) {
+      const date = addDays(weekStart, week * 7 + (days[d] ?? d));
+      if (date < fromDate || date > program.ends_on) continue;
+      const wt = templatesById.get(rotationTemplateIds[rotationIdx % rotationTemplateIds.length]);
+      rotationIdx++;
+      if (!wt) continue;
+      await put(
+        'workouts',
+        withSyncFields<Omit<Workout, keyof import('../db/types').SyncFields>>({
+          program_id: program.id,
+          workout_template_id: wt.id,
+          name: wt.name,
+          scheduled_on: date,
+          original_scheduled_on: null,
+          state: 'scheduled',
+          started_at: null,
+          completed_at: null,
+          notes: null,
+        })
+      );
+    }
+  }
+}
+
+export interface ProgramEdit {
+  name: string;
+  description: string;
+  frequency_per_week: number;
+  preferred_days: number[];
+  ends_on: string;
+  rotationTemplateIds: string[];
+}
+
+/**
+ * Edit a running program: update its config and regenerate the remaining
+ * schedule from today. Past, completed, skipped, and in-progress workouts are
+ * left untouched — only future scheduled slots are rebuilt from the new
+ * frequency, preferred days, rotation, and end date.
+ */
+export async function updateProgram(program: Program, edit: ProgramEdit): Promise<Program> {
+  const today = todayLocal();
+  const durationWeeks = Math.max(1, Math.ceil(daysBetween(program.started_on, edit.ends_on) / 7));
+
+  const updated = (await put('programs', {
+    ...program,
+    name: edit.name,
+    description: edit.description,
+    frequency_per_week: edit.frequency_per_week,
+    preferred_days: [...edit.preferred_days],
+    ends_on: edit.ends_on,
+    duration_weeks: durationWeeks,
+  })) as Program;
+
+  // Drop future scheduled slots and rebuild them from today.
+  const workouts = await byIndex<Workout>('workouts', 'program_id', program.id);
+  const futureScheduled = workouts.filter(
+    (w) => w.state === 'scheduled' && w.scheduled_on && w.scheduled_on >= today
+  );
+  await softDeleteMany('workouts', futureScheduled.map((w) => w.id));
+
+  await generateProgramWorkouts(updated, edit.rotationTemplateIds, today);
+  return updated;
 }
 
 export interface ProgramProgress {

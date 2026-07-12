@@ -22,7 +22,7 @@
   import Pagination from '../Pagination.svelte';
   import { href } from '../../lib/paths';
 
-  const HISTORY_PAGE_SIZE = 250;
+  const HISTORY_PAGE_SIZE = 30;
 
   let loading = $state(true);
   let templates: WorkoutTemplate[] = $state([]);
@@ -77,9 +77,19 @@
   });
 
   let historyPage = $state(0);
-  const pagedHistory = $derived(
-    history.slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE)
+  let historySearch = $state('');
+  const filteredHistory = $derived(
+    historySearch.trim()
+      ? history.filter((w) => w.name.toLowerCase().includes(historySearch.trim().toLowerCase()))
+      : history
   );
+  const pagedHistory = $derived(
+    filteredHistory.slice(historyPage * HISTORY_PAGE_SIZE, (historyPage + 1) * HISTORY_PAGE_SIZE)
+  );
+  $effect(() => {
+    historySearch;
+    historyPage = 0;
+  });
 
   const visibleTemplates = $derived(
     templates.filter(
@@ -580,6 +590,15 @@
   {#if history.length === 0}
     <p class="muted">No completed workouts yet.</p>
   {:else}
+    <input
+      type="search"
+      style="margin-bottom: var(--space-3);"
+      placeholder="Search history by workout name…"
+      bind:value={historySearch}
+    />
+    {#if filteredHistory.length === 0}
+      <p class="muted">No workouts match “{historySearch}”.</p>
+    {:else}
     <div class="stack">
       {#each pagedHistory as w (w.id)}
         <Accordion summary={`${w.name} — ${formatTimestamp(w.completed_at!)}`}>
@@ -603,11 +622,12 @@
       {/each}
     </div>
     <Pagination
-      total={history.length}
+      total={filteredHistory.length}
       pageSize={HISTORY_PAGE_SIZE}
       bind:page={historyPage}
       label="workouts"
     />
+    {/if}
   {/if}
 {/if}
 

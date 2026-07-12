@@ -6,6 +6,8 @@
     abandonProgram,
     programProgress,
     getActiveProgram,
+    programRotation,
+    updateProgram,
   } from '../../lib/services/workouts';
   import { computeRecords, type ExerciseRecords } from '../../lib/services/records';
   import { formatDate, WEEKDAYS_SHORT } from '../../lib/utils/dates';
@@ -37,6 +39,13 @@
   let profile: UserProfile | undefined = $state();
   let busy = $state(false);
 
+  let pastSearch = $state('');
+  const filteredPastPrograms = $derived(
+    pastSearch.trim()
+      ? pastPrograms.filter((p) => p.name.toLowerCase().includes(pastSearch.trim().toLowerCase()))
+      : pastPrograms
+  );
+
   let showForm = $state(false);
   let editingId: string | null = $state(null);
   let expandedTemplateId: string | null = $state(null);
@@ -46,6 +55,15 @@
   let fWeeks = $state(8);
   let fDays: number[] = $state([1, 3, 5]);
   let fRotation: { existingId: string | null; workout_template_id: string }[] = $state([]);
+
+  // Editing the RUNNING program (distinct from editing a template above).
+  let editingActive = $state(false);
+  let eName = $state('');
+  let eDescription = $state('');
+  let eFrequency: number | '' = $state(3);
+  let eDays: number[] = $state([]);
+  let eEndsOn = $state('');
+  let eRotation: string[] = $state([]);
 
   const wtById = $derived(new Map(workoutTemplates.map((t) => [t.id, t])));
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
@@ -68,25 +86,12 @@
     if (activeProgram) {
       progress = await programProgress(activeProgram);
       const tpl = programTemplates.find((t) => t.id === activeProgram!.program_template_id);
-      if (tpl) {
-        currentDescription = tpl.description;
-        currentRotation = rotationFor(tpl.id).map(
-          (r) => workoutTemplates.find((wt) => wt.id === r.workout_template_id)?.name ?? 'Unknown template'
-        );
-      } else {
-        // Source template was deleted — reconstruct the rotation from the
-        // program's own scheduled workouts instead.
-        const ws = (await byIndex<Workout>('workouts', 'program_id', activeProgram.id))
-          .filter((w) => w.scheduled_on)
-          .sort((a, b) => a.scheduled_on!.localeCompare(b.scheduled_on!));
-        const seen = new Set<string>();
-        for (const w of ws) {
-          if (!seen.has(w.name)) {
-            seen.add(w.name);
-            currentRotation.push(w.name);
-          }
-        }
-      }
+      // Prefer the instance's own (editable) description; fall back to the template.
+      currentDescription = activeProgram.description ?? tpl?.description ?? '';
+      const rotationIds = await programRotation(activeProgram);
+      currentRotation = rotationIds.map(
+        (id) => workoutTemplates.find((wt) => wt.id === id)?.name ?? 'Unknown template'
+      );
     }
 
     const programs = await all<Program>('programs');
@@ -218,6 +223,51 @@
     await refresh();
   }
 
+  // --- Editing the running program.
+  async function openEditActive() {
+    if (!activeProgram) return;
+    eName = activeProgram.name;
+    eDescription = currentDescription;
+    eFrequency = activeProgram.frequency_per_week;
+    eDays = [...activeProgram.preferred_days];
+    eEndsOn = activeProgram.ends_on;
+    eRotation = await programRotation(activeProgram);
+    editingActive = true;
+  }
+
+  function toggleEDay(d: number) {
+    eDays = eDays.includes(d) ? eDays.filter((x) => x !== d) : [...eDays, d].sort((a, b) => a - b);
+  }
+
+  async function saveActive(e: SubmitEvent) {
+    e.preventDefault();
+    if (!activeProgram) return;
+    if (eDays.length === 0) {
+      alert('Pick at least one preferred day.');
+      return;
+    }
+    if (eRotation.length === 0) {
+      alert('Keep at least one workout in the rotation.');
+      return;
+    }
+    if (eEndsOn < activeProgram.started_on) {
+      alert('The end date cannot be before the program started.');
+      return;
+    }
+    busy = true;
+    await updateProgram($state.snapshot(activeProgram) as Program, {
+      name: eName.trim() || activeProgram.name,
+      description: eDescription.trim(),
+      frequency_per_week: Number(eFrequency) || 1,
+      preferred_days: $state.snapshot(eDays) as number[],
+      ends_on: eEndsOn,
+      rotationTemplateIds: $state.snapshot(eRotation) as string[],
+    });
+    editingActive = false;
+    busy = false;
+    await refresh();
+  }
+
   /** All-time PR improvements achieved within the program's window. */
   function prsDuring(p: Program): { text: string }[] {
     const out: { text: string }[] = [];
@@ -264,7 +314,7 @@
   {/if}
 
   <div class="stack">
-    {#if activeProgram}
+    {#if activeProgram && !editingActive}
       <Card title="Current program">
         <h3>{activeProgram.name}</h3>
         {#if currentDescription}
@@ -288,8 +338,82 @@
           {#if progress.bumped > 0}&nbsp;· {progress.bumped} bumped{/if}
         </p>
         <div class="form-actions" style="margin-top: var(--space-3);">
+          <button class="btn" onclick={openEditActive} disabled={busy}>Edit program</button>
           <button class="btn btn-danger" onclick={abandon} disabled={busy}>Abandon program</button>
         </div>
+      </Card>
+    {:else if activeProgram && editingActive}
+      <Card title="Edit current program">
+        <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--font-size-sm);">
+          Changes rebuild the schedule from today onward — completed and past
+          workouts are kept.
+        </p>
+        <form class="stack" onsubmit={saveActive}>
+          <div>
+            <label for="ep-name">Name</label>
+            <input id="ep-name" required bind:value={eName} />
+          </div>
+          <div>
+            <label for="ep-desc">Description</label>
+            <input id="ep-desc" bind:value={eDescription} />
+          </div>
+          <div class="row">
+            <div>
+              <label for="ep-freq">Workouts per week</label>
+              <input id="ep-freq" type="number" min="1" max="7" required bind:value={eFrequency} />
+            </div>
+            <div>
+              <label for="ep-ends">Ends on</label>
+              <input id="ep-ends" type="date" required bind:value={eEndsOn} min={activeProgram.started_on} />
+            </div>
+          </div>
+          <div>
+            <span class="field-label">Preferred days</span>
+            <div class="days">
+              {#each WEEKDAYS_SHORT as day, i}
+                <button type="button" class="chip" class:selected={eDays.includes(i)} onclick={() => toggleEDay(i)}>
+                  {day}
+                </button>
+              {/each}
+            </div>
+          </div>
+          <div class="stack" style="gap: var(--space-2);">
+            <span class="field-label">Workout rotation (repeats in order)</span>
+            {#each eRotation as tplId, i (i)}
+              <div class="rotation-row">
+                <span class="muted">{i + 1}.</span>
+                <select bind:value={eRotation[i]} aria-label={`Rotation slot ${i + 1}`}>
+                  {#each workoutTemplates as wt}
+                    <option value={wt.id}>{wt.name}</option>
+                  {/each}
+                </select>
+                <button
+                  type="button"
+                  class="btn btn-danger"
+                  onclick={() => (eRotation = eRotation.filter((_, j) => j !== i))}
+                  aria-label="Remove rotation slot"
+                >
+                  ✕
+                </button>
+              </div>
+            {/each}
+            {#if workoutTemplates.length > 0}
+              <button
+                type="button"
+                class="btn"
+                onclick={() => (eRotation = [...eRotation, workoutTemplates[0].id])}
+              >
+                + Add workout
+              </button>
+            {/if}
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn" onclick={() => (editingActive = false)} disabled={busy}>Cancel</button>
+            <button type="submit" class="btn btn-primary" disabled={busy}>
+              {busy ? 'Saving…' : 'Save changes'}
+            </button>
+          </div>
+        </form>
       </Card>
     {/if}
 
@@ -462,7 +586,16 @@
     {#if pastPrograms.length === 0}
       <p class="muted">No past programs yet.</p>
     {:else}
-      {#each pastPrograms as p (p.id)}
+      <input
+        type="search"
+        style="margin-bottom: var(--space-3);"
+        placeholder="Search past programs by name…"
+        bind:value={pastSearch}
+      />
+      {#if filteredPastPrograms.length === 0}
+        <p class="muted">No past programs match “{pastSearch}”.</p>
+      {/if}
+      {#each filteredPastPrograms as p (p.id)}
         <Accordion summary={`${p.name} — ${formatDate(p.started_on)} to ${formatDate(p.ends_on)} (${p.state})`}>
           {@const prs = prsDuring(p)}
           {@const wc = weightChange(p)}

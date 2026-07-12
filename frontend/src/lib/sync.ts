@@ -57,15 +57,29 @@ export function setSyncUrl(url: string): void {
   else localStorage.removeItem(SYNC_URL_KEY);
 }
 
-/** Map an HTTP failure to a user-facing message; full details go to the console. */
+/**
+ * Map an HTTP failure to a user-facing message; full details go to the
+ * console. Known statuses get tailored guidance; anything else just reports
+ * the raw status code and message.
+ */
 async function describeHttpError(phase: string, res: Response): Promise<string> {
   const body = await res.text().catch(() => '');
   const detail = `${res.status} ${res.statusText || 'error'}`;
   console.error(`[workoutt sync] ${phase} failed: ${detail}`, body || '(no response body)');
-  if (res.status >= 500) {
-    return `Server experiencing errors, please contact your administrator with the following details: ${detail}`;
+  switch (res.status) {
+    case 400:
+      return `The server rejected the request as invalid (400). This usually means the app and server versions don't match — try refreshing.`;
+    case 403:
+      return `Access to the sync server is forbidden (403). Check that this server is set up to accept your device.`;
+    case 404:
+      return `No sync server was found at that address (404). Check the server URL in Settings.`;
+    case 502:
+      return `The sync server is unreachable through its gateway (502). It may be starting up or down — try again shortly or contact your administrator.`;
+    case 503:
+      return `The sync server is temporarily unavailable (503). It may be overloaded or under maintenance — try again shortly.`;
+    default:
+      return `Sync failed with an unexpected response: ${detail}.`;
   }
-  return `Cannot reach the sync server — check the server URL in Settings (${detail})`;
 }
 
 function describeNetworkError(phase: string, err: unknown): string {

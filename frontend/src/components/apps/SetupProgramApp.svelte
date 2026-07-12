@@ -13,7 +13,7 @@
   import type { BodyPart, Exercise, ExperienceLevel, MeasurementType, ProgramTemplate, UserProfile } from '../../lib/db/types';
   import { WEEKDAYS_SHORT } from '../../lib/utils/dates';
   import { href } from '../../lib/paths';
-  import { generatePlan, PLAN_OPTIONS, type PlanType } from '../../lib/planPresets';
+  import { generatePlan, allPresetExercises, PLAN_OPTIONS, type PlanType } from '../../lib/planPresets';
   import Card from '../Card.svelte';
 
   const EXPERIENCE_OPTIONS: { value: ExperienceLevel; label: string; blurb: string }[] = [
@@ -62,6 +62,8 @@
   let weeks: number | '' = $state(8);
   let days: number[] = $state([1, 3, 5]);
   let startToday = $state(true);
+  /** Also add the full curated exercise library, not just what the plan uses. */
+  let addUnusedExercises = $state(false);
 
   // Add-exercise mini form (step 1)
   let newName = $state('');
@@ -216,6 +218,26 @@
           id = row.id;
         }
         exerciseId.set(ex.name, id);
+      }
+
+      // Optionally seed the full curated library too — exercises the program
+      // doesn't use, so the user has more to build from later. Reuse by name.
+      if (addUnusedExercises) {
+        for (const ex of allPresetExercises()) {
+          const key = ex.name.toLowerCase();
+          if (idByName.has(key) || exerciseId.has(ex.name)) continue;
+          await put(
+            'exercises',
+            withSyncFields({
+              name: ex.name,
+              body_parts: ex.body_parts,
+              description: '',
+              video_url: null,
+              image_urls: [],
+              measurement_type: ex.measurement_type,
+            })
+          );
+        }
       }
 
       // Workout templates + their exercise rows.
@@ -404,6 +426,19 @@
           </button>
         </div>
       </div>
+
+      
+      <label class="unused-check">
+        <input type="checkbox" bind:checked={addUnusedExercises} />
+        <span>
+          Add Unused Exercises to Database
+          <span class="muted">
+            Also loads the full exercise library, not just the ones your program
+            uses — handy for building custom workouts later. Your program stays
+            built only from exercises that fit your plan.
+          </span>
+        </span>
+      </label>
 
       <div class="wiz-actions">
         <button class="btn" onclick={() => (step = 0)}>Back</button>
@@ -760,6 +795,25 @@
 
   .start-check input {
     width: auto;
+  }
+
+  .unused-check {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    color: var(--text-color);
+  }
+
+  .unused-check input {
+    width: auto;
+    margin-top: 0.25rem;
+  }
+
+  .unused-check .muted {
+    display: block;
+    font-size: var(--font-size-sm);
+    margin-top: 2px;
   }
 
   .wiz-actions {

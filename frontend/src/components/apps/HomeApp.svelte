@@ -14,7 +14,7 @@
   import { formatRecordValue } from '../../lib/utils/records-format';
   import { formatDuration } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
-  import { formatDate, todayLocal, daysBetween, addDays, dayOfWeek, WEEKDAYS_SHORT } from '../../lib/utils/dates';
+  import { formatDate, todayLocal, daysBetween, addDays, dayOfWeek, toLocalDate, WEEKDAYS_SHORT } from '../../lib/utils/dates';
   import { href } from '../../lib/paths';
   import type {
     Exercise,
@@ -100,9 +100,10 @@
     prs = await recentPRs(5);
 
     const allWorkouts = await all<Workout>('workouts');
-    weekWorkouts = allWorkouts.filter(
-      (w) => w.scheduled_on && w.scheduled_on >= weekDates[0] && w.scheduled_on <= weekDates[6]
-    );
+    weekWorkouts = allWorkouts.filter((w) => {
+      const d = displayDate(w);
+      return d && d >= weekDates[0] && d <= weekDates[6];
+    });
 
     nextBodyParts = [];
     if (nextWorkout?.workout_template_id) {
@@ -154,9 +155,19 @@
     return formatDate(w.scheduled_on);
   }
 
+  /**
+   * The calendar day a workout belongs on: the day it was actually completed
+   * (so ad-hoc workouts and ones done early/late land on the right day),
+   * otherwise its scheduled day.
+   */
+  function displayDate(w: Workout): string | null {
+    if (w.state === 'completed' && w.completed_at) return toLocalDate(new Date(w.completed_at));
+    return w.scheduled_on;
+  }
+
   function workoutsOn(date: string): Workout[] {
     return weekWorkouts
-      .filter((w) => w.scheduled_on === date)
+      .filter((w) => displayDate(w) === date)
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
