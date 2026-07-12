@@ -148,11 +148,12 @@ CREATE TABLE programs (
     id                   TEXT PRIMARY KEY,
     program_template_id  TEXT REFERENCES program_templates (id),  -- provenance only
     name                 TEXT NOT NULL,               -- snapshot
-    frequency_per_week   INTEGER NOT NULL,            -- snapshot
-    duration_weeks       INTEGER NOT NULL,            -- snapshot
-    preferred_days       TEXT NOT NULL DEFAULT '[]',  -- snapshot, JSON array of ints
+    description          TEXT NOT NULL DEFAULT '',     -- snapshot; editable while running
+    frequency_per_week   INTEGER NOT NULL,            -- editable while running
+    duration_weeks       INTEGER NOT NULL,            -- editable while running
+    preferred_days       TEXT NOT NULL DEFAULT '[]',  -- JSON array of ints; editable while running
     started_on           TEXT NOT NULL,               -- local date 'YYYY-MM-DD'
-    ends_on              TEXT NOT NULL,               -- local date; never extended by bumps
+    ends_on              TEXT NOT NULL,               -- local date; editable while running
     state                TEXT NOT NULL DEFAULT 'active'
                          CHECK (state IN ('active', 'completed', 'abandoned')),
     updated_at           TEXT NOT NULL,
@@ -181,6 +182,7 @@ CREATE TABLE workouts (
                            CHECK (state IN ('scheduled', 'in_progress', 'completed', 'skipped')),
     started_at             TEXT,           -- UTC ISO 8601
     completed_at           TEXT,           -- UTC ISO 8601
+    notes                  TEXT,           -- free-text, shown on next same-template workout
     updated_at             TEXT NOT NULL,
     deleted_at             TEXT,
     server_seq             INTEGER

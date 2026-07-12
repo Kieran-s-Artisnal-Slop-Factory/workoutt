@@ -82,13 +82,13 @@ var tables = map[string]tableMeta{
 		columns: cols("id", "program_template_id", "workout_template_id", "position"),
 	},
 	"programs": {
-		columns: cols("id", "program_template_id", "name", "frequency_per_week",
+		columns: cols("id", "program_template_id", "name", "description", "frequency_per_week",
 			"duration_weeks", "preferred_days", "started_on", "ends_on", "state"),
 		jsonCols: set("preferred_days"),
 	},
 	"workouts": {
 		columns: cols("id", "program_id", "workout_template_id", "name", "scheduled_on",
-			"original_scheduled_on", "state", "started_at", "completed_at"),
+			"original_scheduled_on", "state", "started_at", "completed_at", "notes"),
 	},
 	"workout_exercises": {
 		columns: cols("id", "workout_id", "exercise_id", "position", "superset_group"),
