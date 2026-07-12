@@ -1,7 +1,7 @@
 1. ~~Update the next workout card~~
     1. ~~have the option to `reschedule` which should give you a date picker to reschedule the workout~~
     2. ~~Have a `read more` button that pops up a modal with the workout title as the title, and in the modal the workout description, and sets that are part of the workout template as well as a preview of what you did last time (sets/reps wise)~~
-2. Change the `This week` view to `workout schedule`
+2. ~~Change the `This week` view to `workout schedule`~~
     1. It should show the current month, with the option to go to the previous month and next month
     2. Show all scheduled and completed workouts
     3. Allow people to move workouts to different days. If someone moves a workout to a past day pop up a modal
@@ -11,7 +11,7 @@
             1. If `cancel` is selected, cancel the reschedule and move the workout back to it's original location
             2. If `enter stats` is selected take the user to a normal workout page for that workout to enter their sets and reps, but on save make sure to complete it on the day they specified
             3. If they hit `submit without stats` treat it as a workout without any sets or reps entered, and complete it on the day they specified
-3. When seeding heavy usage data the programs page is empty
+3. ~~When seeding heavy usage data the programs page is empty~~
 4. Have program records that are PR's per program, not just the global PR system
     1. Split the current records tab into a drop-down nav with the current records being called `All Time` and one called `By Program`
         1. `All Time` should be the current records page as it is

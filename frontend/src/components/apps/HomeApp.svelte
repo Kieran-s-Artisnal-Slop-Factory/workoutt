@@ -14,7 +14,7 @@
   import { formatRecordValue } from '../../lib/utils/records-format';
   import { formatDuration, formatWeight, formatDistance } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
-  import { formatDate, todayLocal, daysBetween, addDays, dayOfWeek, toLocalDate, WEEKDAYS_SHORT } from '../../lib/utils/dates';
+  import { formatDate, todayLocal, daysBetween, addDays, dayOfWeek, toLocalDate, parseLocalDate, WEEKDAYS_SHORT } from '../../lib/utils/dates';
   import { href } from '../../lib/paths';
   import type {
     Exercise,
@@ -37,9 +37,13 @@
   let templates: WorkoutTemplate[] = $state([]);
   let adhocTemplateId = $state('');
   let prs: RecentPR[] = $state([]);
-  let weekWorkouts: Workout[] = $state([]);
+  let scheduleWorkouts: Workout[] = $state([]);
   let draggingWorkout: Workout | null = $state(null);
   let dragOverDay: string | null = $state(null);
+  /** First-of-month (YYYY-MM-01) of the month shown in the schedule. */
+  let viewMonth = $state('');
+  /** Pending "move to past date" prompt. */
+  let pastMove: { workout: Workout; date: string; time: string } | null = $state(null);
   let busy = $state(false);
   let greeting = $state('Home');
 
@@ -82,8 +86,34 @@
   ];
 
   const today = todayLocal();
-  const weekStart = addDays(today, -dayOfWeek(today));
-  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  function firstOfMonth(dateStr: string): string {
+    return dateStr.slice(0, 8) + '01';
+  }
+  function addMonths(firstOfMonthStr: string, delta: number): string {
+    const [y, m] = firstOfMonthStr.split('-').map(Number);
+    const total = y * 12 + (m - 1) + delta;
+    const ny = Math.floor(total / 12);
+    const nm = (total % 12) + 1;
+    return `${ny}-${String(nm).padStart(2, '0')}-01`;
+  }
+
+  /** The 6-week grid (Sun-anchored) covering the displayed month. */
+  const monthGrid = $derived.by(() => {
+    if (!viewMonth) return [] as string[];
+    const gridStart = addDays(viewMonth, -dayOfWeek(viewMonth));
+    const lastDay = addDays(addMonths(viewMonth, 1), -1);
+    const gridEnd = addDays(lastDay, 6 - dayOfWeek(lastDay));
+    const days: string[] = [];
+    for (let d = gridStart; d <= gridEnd; d = addDays(d, 1)) days.push(d);
+    return days;
+  });
+  const monthLabel = $derived(
+    viewMonth
+      ? parseLocalDate(viewMonth).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+      : ''
+  );
+  const inViewMonth = (date: string) => date.slice(0, 7) === viewMonth.slice(0, 7);
 
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
   const du = $derived(profile?.display_distance_unit ?? 'km');
@@ -95,6 +125,7 @@
       return;
     }
     greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)](profile.name ?? null);
+    viewMonth = firstOfMonth(today);
 
     const raw = sessionStorage.getItem('workoutt-workout-summary');
     if (raw) {
@@ -120,11 +151,8 @@
     );
     prs = await recentPRs(5);
 
-    const allWorkouts = await all<Workout>('workouts');
-    weekWorkouts = allWorkouts.filter((w) => {
-      const d = displayDate(w);
-      return d && d >= weekDates[0] && d <= weekDates[6];
-    });
+    // All schedulable workouts; the calendar filters by day as it renders.
+    scheduleWorkouts = (await all<Workout>('workouts')).filter((w) => displayDate(w) != null);
 
     nextBodyParts = [];
     if (nextWorkout?.workout_template_id) {
@@ -286,19 +314,32 @@
   }
 
   function workoutsOn(date: string): Workout[] {
-    return weekWorkouts
+    return scheduleWorkouts
       .filter((w) => displayDate(w) === date)
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  const canDrag = (w: Workout, date: string) => w.state === 'scheduled' && date >= today;
+  /** Scheduled workouts can be dragged to any day (past days prompt a modal). */
+  const canDrag = (w: Workout) => w.state === 'scheduled';
 
-  /** Reschedule via drag: counts as a bump (original date is preserved). */
+  /**
+   * Drop a dragged workout on a day. Future/today → straight reschedule
+   * (bump). Past day → open the "Moving workout to Past Date" prompt.
+   */
   async function dropOnDay(date: string) {
     const w = draggingWorkout;
     draggingWorkout = null;
     dragOverDay = null;
-    if (!w || date < today || w.scheduled_on === date) return;
+    if (!w || w.scheduled_on === date) return;
+    if (date < today) {
+      const now = new Date();
+      pastMove = {
+        workout: $state.snapshot(w) as Workout,
+        date,
+        time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+      };
+      return;
+    }
     await put('workouts', {
       ...($state.snapshot(w) as Workout),
       scheduled_on: date,
@@ -307,11 +348,53 @@
     await refresh();
   }
 
+  function pastCompletedIso(pm: { date: string; time: string }): string {
+    const [y, mo, d] = pm.date.split('-').map(Number);
+    const [h, mi] = pm.time.split(':').map(Number);
+    return new Date(y, mo - 1, d, h || 0, mi || 0).toISOString();
+  }
+
+  /** Enter stats: anchor to the past date, start it, go to the workout page. */
+  async function pastEnterStats() {
+    if (!pastMove) return;
+    const pm = pastMove;
+    pastMove = null;
+    busy = true;
+    const anchored = {
+      ...pm.workout,
+      scheduled_on: pm.date,
+      original_scheduled_on: pm.workout.original_scheduled_on ?? pm.workout.scheduled_on,
+    };
+    await put('workouts', anchored);
+    await startWorkout(anchored as Workout);
+    const iso = pastCompletedIso(pm);
+    location.href = href(`/workout/?id=${pm.workout.id}&completeOn=${encodeURIComponent(iso)}`);
+  }
+
+  /** Submit without stats: mark completed on the past date, no sets logged. */
+  async function pastSubmitNoStats() {
+    if (!pastMove) return;
+    const pm = pastMove;
+    pastMove = null;
+    busy = true;
+    const iso = pastCompletedIso(pm);
+    await put('workouts', {
+      ...pm.workout,
+      scheduled_on: pm.date,
+      original_scheduled_on: pm.workout.original_scheduled_on ?? pm.workout.scheduled_on,
+      state: 'completed',
+      started_at: iso,
+      completed_at: iso,
+    });
+    busy = false;
+    await refresh();
+  }
+
   // Dragging uses pointer events instead of HTML5 drag-and-drop: Edge
   // intercepts native drags (Super Drag & Drop etc.) and shows 🚫 even with
   // drag data set, and pointer events also work on touch screens.
-  function chipPointerDown(e: PointerEvent, w: Workout, date: string) {
-    if (!canDrag(w, date)) return;
+  function chipPointerDown(e: PointerEvent, w: Workout) {
+    if (!canDrag(w)) return;
     draggingWorkout = w;
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -325,8 +408,7 @@
     const el = document
       .elementFromPoint(e.clientX, e.clientY)
       ?.closest('[data-date]') as HTMLElement | null;
-    const date = el?.dataset.date ?? null;
-    dragOverDay = date && date >= today ? date : null;
+    dragOverDay = el?.dataset.date ?? null;
   }
 
   function chipPointerUp() {
@@ -538,48 +620,80 @@
       </Card>
     </div>
 
-    {#if weekWorkouts.length > 0}
-      <Card title="This week">
-        <p class="muted week-hint">Drag a workout to another day to reschedule it.</p>
-        <div class="week">
-          {#each weekDates as date (date)}
-            {@const past = date < today}
-            <div
-              class="day"
-              class:past
-              class:is-today={date === today}
-              class:drop-target={draggingWorkout != null && dragOverDay === date}
-              role="listitem"
-              data-date={date}
-              aria-label={`${WEEKDAYS_SHORT[dayOfWeek(date)]} ${date}${past ? ' (past)' : ''}`}
-            >
-              <span class="day-label">
-                {WEEKDAYS_SHORT[dayOfWeek(date)]}
-                <span class="day-num">{Number(date.slice(8))}</span>
-              </span>
-              {#each workoutsOn(date) as w (w.id)}
-                <div
-                  class="week-chip"
-                  class:done={w.state === 'completed'}
-                  class:draggable-chip={canDrag(w, date)}
-                  class:dragging={draggingWorkout?.id === w.id}
-                  role="listitem"
-                  title={canDrag(w, date) ? 'Drag to reschedule' : w.state}
-                  onpointerdown={(e) => chipPointerDown(e, w, date)}
-                  onpointermove={chipPointerMove}
-                  onpointerup={chipPointerUp}
-                  onpointercancel={chipPointerCancel}
-                >
-                  {w.name}
-                  {#if w.state === 'completed'}✓{/if}
-                  {#if w.state === 'in_progress'}⏱{/if}
-                  {#if w.state === 'skipped'}—{/if}
-                </div>
-              {/each}
-            </div>
-          {/each}
+    <Card title="Workout schedule">
+      <div class="cal-head">
+        <button class="btn" onclick={() => (viewMonth = addMonths(viewMonth, -1))} aria-label="Previous month">←</button>
+        <div class="cal-month">
+          <strong>{monthLabel}</strong>
+          {#if viewMonth !== firstOfMonth(today)}
+            <button class="cal-today" onclick={() => (viewMonth = firstOfMonth(today))}>Today</button>
+          {/if}
         </div>
-      </Card>
+        <button class="btn" onclick={() => (viewMonth = addMonths(viewMonth, 1))} aria-label="Next month">→</button>
+      </div>
+      <p class="muted week-hint">Drag a workout to another day to move it. Dropping on a past day lets you log it as done.</p>
+      <div class="cal-weekdays">
+        {#each WEEKDAYS_SHORT as wd}
+          <span>{wd}</span>
+        {/each}
+      </div>
+      <div class="month">
+        {#each monthGrid as date (date)}
+          {@const past = date < today}
+          <div
+            class="day"
+            class:past
+            class:is-today={date === today}
+            class:other-month={!inViewMonth(date)}
+            class:drop-target={draggingWorkout != null && dragOverDay === date}
+            role="listitem"
+            data-date={date}
+            aria-label={`${date}${past ? ' (past)' : ''}`}
+          >
+            <span class="day-num">{Number(date.slice(8))}</span>
+            {#each workoutsOn(date) as w (w.id)}
+              <div
+                class="week-chip"
+                class:done={w.state === 'completed'}
+                class:draggable-chip={canDrag(w)}
+                class:dragging={draggingWorkout?.id === w.id}
+                role="listitem"
+                title={canDrag(w) ? 'Drag to move' : w.state}
+                onpointerdown={(e) => chipPointerDown(e, w)}
+                onpointermove={chipPointerMove}
+                onpointerup={chipPointerUp}
+                onpointercancel={chipPointerCancel}
+              >
+                {w.name}
+                {#if w.state === 'completed'}✓{/if}
+                {#if w.state === 'in_progress'}⏱{/if}
+                {#if w.state === 'skipped'}—{/if}
+              </div>
+            {/each}
+          </div>
+        {/each}
+      </div>
+    </Card>
+
+    {#if pastMove}
+      <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="pastmove-title">
+        <div class="modal">
+          <h3 id="pastmove-title">Moving workout to Past Date</h3>
+          <p class="muted">
+            You're moving <strong>{pastMove.workout.name}</strong> to
+            {formatDate(pastMove.date)}, which is in the past. Log it as completed?
+          </p>
+          <div>
+            <label for="past-time">What time did you finish?</label>
+            <input id="past-time" type="time" bind:value={pastMove.time} />
+          </div>
+          <div class="modal-actions">
+            <button class="btn" onclick={() => (pastMove = null)} disabled={busy}>Cancel</button>
+            <button class="btn" onclick={pastSubmitNoStats} disabled={busy}>Submit without stats</button>
+            <button class="btn btn-primary" onclick={pastEnterStats} disabled={busy}>Enter stats</button>
+          </div>
+        </div>
+      </div>
     {/if}
 
     {#if prs.length > 0}
@@ -712,7 +826,47 @@
     margin-bottom: var(--space-2);
   }
 
-  .week {
+  .cal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .cal-month {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: var(--font-size-lg);
+  }
+
+  .cal-today {
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    color: var(--color-primary-strong);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    padding: 0 var(--space-2);
+    cursor: pointer;
+  }
+
+  .cal-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--space-1);
+    margin-bottom: var(--space-1);
+  }
+
+  .cal-weekdays span {
+    text-align: center;
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    color: var(--text-muted-color);
+  }
+
+  .month {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     gap: var(--space-1);
@@ -722,10 +876,25 @@
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     padding: var(--space-1);
-    min-height: 5.5rem;
+    min-height: 4.5rem;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: 2px;
+  }
+
+  .day.other-month {
+    opacity: 0.45;
+  }
+
+  .day-num {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-weight: 700;
+    padding: 0 var(--space-1);
+  }
+
+  .is-today .day-num {
+    color: var(--color-primary-strong);
   }
 
   .day.past {
@@ -747,19 +916,6 @@
   .day.drop-target {
     background: var(--color-primary-soft);
     border-color: var(--color-primary);
-  }
-
-  .day-label {
-    font-size: var(--font-size-sm);
-    color: var(--text-muted-color);
-    font-weight: 700;
-    display: flex;
-    justify-content: space-between;
-    padding: 0 var(--space-1);
-  }
-
-  .is-today .day-label {
-    color: var(--color-primary-strong);
   }
 
   .week-chip {
@@ -877,9 +1033,14 @@
   }
 
   @media (max-width: 40rem) {
-    .week {
-      grid-template-columns: repeat(7, minmax(4.5rem, 1fr));
-      overflow-x: auto;
+    .day {
+      min-height: 3.5rem;
+      font-size: var(--font-size-sm);
+    }
+
+    .week-chip {
+      font-size: 0.7rem;
+      padding: 2px;
     }
   }
 </style>

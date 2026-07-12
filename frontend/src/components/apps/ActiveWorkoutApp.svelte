@@ -48,6 +48,9 @@
   /** Editing an already-completed workout (from history). */
   let editing = $state(false);
   let showFinishConfirm = $state(false);
+  /** When set (from the calendar "past date → enter stats" flow), finishing
+   *  records completion at this ISO time instead of now. */
+  let completeOn: string | null = $state(null);
   /** Notes for this workout, and notes carried from the last same-template one. */
   let notes = $state('');
   let priorNotes: { notes: string; date: string } | null = $state(null);
@@ -80,6 +83,7 @@
 
     const params = new URLSearchParams(location.search);
     const id = params.get('id');
+    completeOn = params.get('completeOn');
     workout = id ? await get<Workout>('workouts', id) : await getInProgressWorkout();
 
     if (workout) {
@@ -305,7 +309,10 @@
     showFinishConfirm = false;
     busy = true;
     const startedAt = workout.started_at;
-    await finishWorkout({ ...($state.snapshot(workout) as Workout), notes: notes.trim() || null });
+    await finishWorkout(
+      { ...($state.snapshot(workout) as Workout), notes: notes.trim() || null },
+      completeOn ?? undefined
+    );
 
     // Hand a full overview to the homepage, which shows it as a modal.
     try {

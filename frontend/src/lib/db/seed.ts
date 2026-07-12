@@ -5,7 +5,7 @@
  */
 import { all, bulkPut, put, withSyncFields, nowIso } from './repo';
 import type { Exercise, UserProfile } from './types';
-import { addDays, parseLocalDate, todayLocal } from '../utils/dates';
+import { addDays, dayOfWeek, parseLocalDate, todayLocal } from '../utils/dates';
 import {   startProgram,
   startWorkout,
   finishWorkout,
@@ -741,9 +741,104 @@ async function seedHeavy(): Promise<string> {
       }
     }
   }
+  // --- Programs. Without these the Programs page is empty under the heavy
+  // seed. Build 3 program templates and 3 instances (2 completed, 1 active),
+  // then adopt the completed workouts above into the matching date windows so
+  // each program has real history (and per-program records have data).
+  const PROGRAM_SPECS = [
+    { name: 'Heavy Program A', startDaysAgo: 300, endDaysAgo: 200, state: 'completed' as const, freq: 4, days: [1, 2, 4, 5], tpl: [0, 1, 2, 3, 4] },
+    { name: 'Heavy Program B', startDaysAgo: 199, endDaysAgo: 90, state: 'completed' as const, freq: 5, days: [1, 2, 3, 4, 5], tpl: [5, 6, 7, 8, 9] },
+    { name: 'Heavy Program C', startDaysAgo: 89, endDaysAgo: -30, state: 'active' as const, freq: 3, days: [1, 3, 5], tpl: [10, 11, 12] },
+  ];
+
+  const programTemplateRows: unknown[] = [];
+  const programTemplateWorkoutRows: unknown[] = [];
+  const programRows: (Program & { id: string })[] = [];
+  for (const spec of PROGRAM_SPECS) {
+    const durationWeeks = Math.max(1, Math.round((spec.startDaysAgo - spec.endDaysAgo) / 7));
+    const pt = withSyncFields({
+      name: spec.name,
+      description: `Generated ${spec.state} program.`,
+      frequency_per_week: spec.freq,
+      duration_weeks: durationWeeks,
+      preferred_days: spec.days,
+    }) as ProgramTemplate & { id: string };
+    programTemplateRows.push(pt);
+    spec.tpl.forEach((ti, pos) => {
+      programTemplateWorkoutRows.push(
+        withSyncFields({
+          program_template_id: pt.id,
+          workout_template_id: templateRows[ti].id,
+          position: pos,
+        })
+      );
+    });
+
+    const startedOn = addDays(todayLocal(), -spec.startDaysAgo);
+    const endsOn = addDays(todayLocal(), -spec.endDaysAgo);
+    programRows.push(
+      withSyncFields({
+        program_template_id: pt.id,
+        name: spec.name,
+        description: `Generated ${spec.state} program.`,
+        frequency_per_week: spec.freq,
+        duration_weeks: durationWeeks,
+        preferred_days: spec.days,
+        started_on: startedOn,
+        ends_on: endsOn,
+        state: spec.state,
+      }) as Program & { id: string }
+    );
+  }
+  await bulkPut('program_templates', programTemplateRows);
+  await bulkPut('program_template_workouts', programTemplateWorkoutRows);
+  await bulkPut('programs', programRows);
+
+  // Adopt completed workouts into whichever program window they fall in, and
+  // give them a scheduled_on so the schedule/records line up.
+  for (const w of workoutRows as (Workout & { id: string })[]) {
+    const day = (w.completed_at ?? '').slice(0, 10);
+    const owner = programRows.find((p) => day >= p.started_on && day <= p.ends_on);
+    if (owner) {
+      w.program_id = owner.id;
+      w.scheduled_on = day;
+    }
+  }
+
   await bulkPut('workouts', workoutRows);
   await bulkPut('workout_exercises', workoutExerciseRows);
   await bulkPut('workout_sets', workoutSetRows);
+
+  // Future scheduled workouts for the active program so it has upcoming days.
+  const active = programRows.find((p) => p.state === 'active')!;
+  const activeSpec = PROGRAM_SPECS.find((s) => s.state === 'active')!;
+  const futureWorkoutRows: unknown[] = [];
+  const sortedDays = [...activeSpec.days].sort((a, b) => a - b);
+  let rot = 0;
+  const weekStart = addDays(todayLocal(), -dayOfWeek(todayLocal()));
+  for (let week = 0; week < 60; week++) {
+    if (addDays(weekStart, week * 7) > active.ends_on) break;
+    for (const d of sortedDays) {
+      const date = addDays(weekStart, week * 7 + d);
+      if (date <= todayLocal() || date > active.ends_on) continue;
+      const tpl = templateRows[activeSpec.tpl[rot % activeSpec.tpl.length]];
+      rot++;
+      futureWorkoutRows.push(
+        withSyncFields({
+          program_id: active.id,
+          workout_template_id: tpl.id,
+          name: tpl.name,
+          scheduled_on: date,
+          original_scheduled_on: null,
+          state: 'scheduled' as const,
+          started_at: null,
+          completed_at: null,
+          notes: null,
+        })
+      );
+    }
+  }
+  await bulkPut('workouts', futureWorkoutRows);
 
   // --- A year of weekly body-weight entries.
   const bodyWeights = Array.from({ length: 52 }, (_, i) =>
@@ -754,5 +849,5 @@ async function seedHeavy(): Promise<string> {
   );
   await bulkPut('body_weight_entries', bodyWeights);
 
-  return `Heavy seed: ${TOTAL_EXERCISES} exercises, ${TEMPLATE_COUNT} templates, ${TOTAL_WORKOUTS} completed workouts (${RECORD_POOL_SIZE} exercises with records), ${bodyWeights.length} weight entries.`;
+  return `Heavy seed: ${TOTAL_EXERCISES} exercises, ${TEMPLATE_COUNT} templates, ${PROGRAM_SPECS.length} programs (1 active, 2 past), ${TOTAL_WORKOUTS} completed workouts (${RECORD_POOL_SIZE} exercises with records), ${bodyWeights.length} weight entries.`;
 }

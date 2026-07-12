@@ -110,8 +110,8 @@ export async function startAdhocWorkout(template: WorkoutTemplate): Promise<Work
   return (await get<Workout>('workouts', workout.id))!;
 }
 
-export async function finishWorkout(workout: Workout): Promise<void> {
-  await put('workouts', { ...workout, state: 'completed', completed_at: nowIso() });
+export async function finishWorkout(workout: Workout, completedAt?: string): Promise<void> {
+  await put('workouts', { ...workout, state: 'completed', completed_at: completedAt ?? nowIso() });
 }
 
 /**
