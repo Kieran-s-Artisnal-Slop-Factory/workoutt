@@ -74,6 +74,11 @@ export interface UserProfile extends SyncFields {
   height_cm: number | null;
   experience_level: ExperienceLevel | null;
   weight_tracking_enabled: boolean;
+  /**
+   * How many months back the body-weight chart shows (the logs stay full).
+   * 0 means all time. May be undefined on older rows — read with `?? 3`.
+   */
+  weight_chart_months?: number;
   onboarding_completed_at: string | null;
 }
 

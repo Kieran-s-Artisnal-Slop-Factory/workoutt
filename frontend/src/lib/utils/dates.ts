@@ -37,6 +37,13 @@ export function addDays(date: string, days: number): string {
   return toLocalDate(d);
 }
 
+/** Shift a local date by whole months (JS month overflow clamps naturally). */
+export function addMonths(date: string, months: number): string {
+  const d = parseLocalDate(date);
+  d.setMonth(d.getMonth() + months);
+  return toLocalDate(d);
+}
+
 /** 0=Sunday..6=Saturday, matching preferred_days. */
 export function dayOfWeek(date: string): number {
   return parseLocalDate(date).getDay();

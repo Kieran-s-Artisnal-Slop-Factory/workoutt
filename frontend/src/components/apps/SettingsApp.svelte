@@ -123,6 +123,8 @@
     syncUrl = getSyncUrl();
     syncStatus = await getSyncStatus();
     profile = (await all<UserProfile>('user_profile'))[0];
+    // Backfill the default so the range <select> has a matching value.
+    if (profile && profile.weight_chart_months == null) profile.weight_chart_months = 3;
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
     } else {
@@ -239,6 +241,23 @@
           />
           Track body weight
         </label>
+        {#if profile.weight_tracking_enabled}
+          <div style="margin-top: var(--space-3);">
+            <label for="set-weight-range">Body-weight chart range</label>
+            <select id="set-weight-range" bind:value={profile.weight_chart_months} onchange={saveProfile}>
+              <option value={1}>Last month</option>
+              <option value={2}>Last 2 months</option>
+              <option value={3}>Last 3 months</option>
+              <option value={6}>Last 6 months</option>
+              <option value={12}>Last year</option>
+              <option value={0}>All time</option>
+            </select>
+            <p class="muted" style="margin-top: var(--space-2); font-size: var(--font-size-sm);">
+              Sets how far back the weight graph on the Records page goes. Your full
+              history always stays in the log below the graph.
+            </p>
+          </div>
+        {/if}
       </Card>
     {:else}
       <Card title="Preferences">

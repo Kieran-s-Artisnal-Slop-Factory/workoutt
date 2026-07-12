@@ -41,6 +41,7 @@ CREATE TABLE user_profile (
     experience_level         TEXT
                              CHECK (experience_level IN ('beginner', 'intermediate', 'advanced')),
     weight_tracking_enabled  INTEGER NOT NULL DEFAULT 0,  -- boolean
+    weight_chart_months      INTEGER NOT NULL DEFAULT 3,   -- months shown on the weight chart; 0 = all time
     onboarding_completed_at  TEXT,                        -- UTC ISO 8601
     updated_at               TEXT NOT NULL,
     deleted_at               TEXT,

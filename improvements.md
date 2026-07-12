@@ -22,7 +22,7 @@
     2. The program records and PR's are different, you will likely need a separate joined table per program now, because if someones PR overall is 400lbs, but their PR for the program is 200lbs, it should show 200lbs, not 400lbs on the program record page
     3. You can just show the overall weight changes across each iteration of the program, not every measurement
         1. e.g. if you had 2 times you ran the program, for 4 weeks each. The first time you did the program you lost 3lbs, and the second time you lost 1lb. This should show up as 2 records with the time ranges they happened in that show -3lbs and -1lb
-5. Plan out an acheivement system in a file called `acheivements.md`
+5. ~~Plan out an acheivement system in a file called `acheivements.md`~~
     1. There will be 3 types of achievements
         1. Account-wide achievements
             1. These will trigger **once** (e.g. you setup your first program, you did 30 total workouts across all programs etc.)

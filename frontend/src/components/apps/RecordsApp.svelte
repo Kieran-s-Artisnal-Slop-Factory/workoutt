@@ -4,7 +4,8 @@
   import { computeRecords, type ExerciseRecords, type RecordEntry } from '../../lib/services/records';
   import { formatWeight, kgToDisplay, displayToKg } from '../../lib/utils/units';
   import { formatRecordValue } from '../../lib/utils/records-format';
-  import { formatDate, parseLocalDate, todayLocal } from '../../lib/utils/dates';
+  import { formatDate, parseLocalDate, todayLocal, addMonths } from '../../lib/utils/dates';
+  import { href } from '../../lib/paths';
   import type { BodyWeightEntry, UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
   import Accordion from '../Accordion.svelte';
@@ -40,6 +41,20 @@
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
   const du = $derived(profile?.display_distance_unit ?? 'km');
   const highlightedIds = $derived(new Set(profile?.highlighted_exercise_ids ?? []));
+
+  // How many months of body-weight to chart (0 = all time). The logs below
+  // always show the full history regardless of this.
+  const chartMonths = $derived(profile?.weight_chart_months ?? 3);
+  const chartCutoff = $derived(chartMonths > 0 ? addMonths(todayLocal(), -chartMonths) : '');
+  const RANGE_LABELS: Record<number, string> = {
+    0: 'all time',
+    1: 'last month',
+    2: 'last 2 months',
+    3: 'last 3 months',
+    6: 'last 6 months',
+    12: 'last year',
+  };
+  const rangeLabel = $derived(RANGE_LABELS[chartMonths] ?? `last ${chartMonths} months`);
 
   let recordSearch = $state('');
   const matchedRecords = $derived(
@@ -78,6 +93,8 @@
   const weightChartData = $derived.by(() => {
     const byDay = new Map<string, BodyWeightEntry>();
     for (const e of weightEntries) {
+      // Only chart entries within the selected range (logs stay full).
+      if (chartCutoff && e.measured_on < chartCutoff) continue;
       const prev = byDay.get(e.measured_on);
       if (!prev || e.updated_at > prev.updated_at) byDay.set(e.measured_on, e);
     }
@@ -199,6 +216,9 @@
     {#if profile?.weight_tracking_enabled}
       <Card title="Body weight">
         {#if weightChartData.length > 1}
+          <p class="muted chart-range">
+            Chart: {rangeLabel} · <a href={href('/settings/')}>change range</a>
+          </p>
           <LineChart
             data={weightChartData}
             xAxisDataField="date"
@@ -207,13 +227,18 @@
             xAxisLabel="Date"
             height={260}
           />
-        {:else if weightEntries.length === 1}
+        {:else if weightEntries.length === 0}
+          <p class="muted">No weight entries yet.</p>
+        {:else if weightChartData.length <= 1 && chartCutoff}
+          <p class="muted">
+            Not enough entries in the {rangeLabel} to chart — your full history is
+            below. <a href={href('/settings/')}>Widen the range</a> in Settings.
+          </p>
+        {:else}
           <p class="muted">
             One entry so far ({formatWeight(weightEntries[0].weight_kg, wu)} on
             {formatDate(weightEntries[0].measured_on)}) — add more to see the trend.
           </p>
-        {:else}
-          <p class="muted">No weight entries yet.</p>
         {/if}
         <form class="weight-form" onsubmit={addWeight}>
           <input
@@ -316,6 +341,11 @@
     display: flex;
     gap: var(--space-2);
     margin-top: var(--space-3);
+  }
+
+  .chart-range {
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-2);
   }
 
   .record-search {
