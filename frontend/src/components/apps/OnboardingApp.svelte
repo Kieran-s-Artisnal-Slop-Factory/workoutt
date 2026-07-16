@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { all, put, withSyncFields, nowIso } from '../../lib/db/repo';
   import { requestPersistentStorage } from '../../lib/db/persistence';
-  import { testConnection, setSyncUrl, getSyncUrl, setSyncMode, syncNow } from '../../lib/sync';
+  import { testConnection, setSyncUrl, getSyncUrl, setSyncMode, getSyncMode, syncNow } from '../../lib/sync';
   import { displayToKg, kgToDisplay } from '../../lib/utils/units';
   import { todayLocal } from '../../lib/utils/dates';
   import { href } from '../../lib/paths';
@@ -72,12 +72,23 @@
   let existing: UserProfile | undefined;
   let hasPartialState = $state(false);
   let recovered = $state(false);
+  /** Deliberate re-run from Settings (?redo=1): keep existing data, prefill. */
+  let redo = $state(false);
 
   onMount(async () => {
+    redo = new URLSearchParams(location.search).get('redo') === '1';
     try {
       const profiles = await all<UserProfile>('user_profile');
-      if (profiles[0]?.onboarding_completed_at) {
+      if (profiles[0]?.onboarding_completed_at && !redo) {
         location.href = href('/');
+        return;
+      }
+      if (profiles[0]?.onboarding_completed_at && redo) {
+        // Re-run: merge into the existing profile on submit (no duplicates)
+        // and start from the current settings rather than a blank form.
+        existing = profiles[0];
+        await recover();
+        loading = false;
         return;
       }
       existing = profiles[0];
@@ -115,11 +126,8 @@
       if (weights[0]) {
         currentWeight = Math.round(kgToDisplay(weights[0].weight_kg, weightUnit ?? 'kg') * 10) / 10;
       }
-      const savedUrl = getSyncUrl();
-      if (savedUrl) {
-        mode = 'sync';
-        serverUrl = savedUrl;
-      }
+      mode = getSyncMode();
+      serverUrl = getSyncUrl();
       recovered = true;
     } catch (err) {
       console.error('[workoutt onboarding] recovery failed:', err);
@@ -166,13 +174,20 @@
       }
 
       if (currentWeight !== '') {
-        await put(
-          'body_weight_entries',
-          withSyncFields({
-            weight_kg: displayToKg(Number(currentWeight), weightUnit),
-            measured_on: todayLocal(),
-          })
-        );
+        // Upsert today's entry so re-running onboarding never duplicates it.
+        const today = todayLocal();
+        const kg = displayToKg(Number(currentWeight), weightUnit);
+        const todays = (await all<BodyWeightEntry>('body_weight_entries'))
+          .filter((e) => e.measured_on === today)
+          .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+        if (todays) {
+          await put('body_weight_entries', { ...todays, weight_kg: kg });
+        } else {
+          await put(
+            'body_weight_entries',
+            withSyncFields({ weight_kg: kg, measured_on: today })
+          );
+        }
       }
 
       setSyncUrl(mode === 'sync' ? serverUrl : '');

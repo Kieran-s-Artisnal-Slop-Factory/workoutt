@@ -1,7 +1,7 @@
 Do these tasks in order:
 
 1. ~~If there are no exercises that exist, on the exercises page allow for an option to `load default exercises` which will seed the sample exercises that you would normally get from the onboarding (all of them)~~
-2. Add documentation to `/docs` 
+2. ~~Add documentation to `/docs`~~ 
     1. Technical Documentation under `/docs/dev` include relevant code references, and mermaid diagrams where relevant, especially for complex sequences and relationships
         1. `/docs/dev/data-model.md` which contains everything you need ot know about the local data model client side
         2. `/docs/dev/sync.md` which contains everything you need to know as a dev about how the sync system works (with flowcharts and sequence diagrams), and the backend data model

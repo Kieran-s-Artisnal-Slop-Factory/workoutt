@@ -258,6 +258,12 @@
             </p>
           </div>
         {/if}
+        <p class="muted" style="margin-top: var(--space-3); font-size: var(--font-size-sm);">
+          Want the full guided setup again?
+          <a href={href('/onboarding/?redo=1')}>Re-run onboarding</a> — your
+          existing data is kept, and everything is prefilled from your current
+          settings.
+        </p>
       </Card>
     {:else}
       <Card title="Preferences">
