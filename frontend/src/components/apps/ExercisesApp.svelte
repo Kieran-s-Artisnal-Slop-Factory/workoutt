@@ -67,6 +67,35 @@
     loading = false;
   }
 
+  let seeding = $state(false);
+
+  /** Empty-library helper: seed the full curated exercise catalogue. */
+  async function loadDefaultExercises() {
+    seeding = true;
+    try {
+      const { allPresetExercises } = await import('../../lib/planPresets');
+      const existing = new Set(exercises.map((e) => e.name.toLowerCase()));
+      for (const ex of allPresetExercises()) {
+        if (existing.has(ex.name.toLowerCase())) continue;
+        await put(
+          'exercises',
+          withSyncFields({
+            name: ex.name,
+            body_parts: ex.body_parts,
+            description: '',
+            video_url: null,
+            image_urls: [],
+            measurement_type: ex.measurement_type,
+          })
+        );
+      }
+      await refresh();
+    } catch (err) {
+      console.error('[workoutt] loading default exercises failed:', err);
+    }
+    seeding = false;
+  }
+
   function openNew() {
     editingId = null;
     fName = '';
@@ -211,11 +240,14 @@
 {#if loading}
   <p class="muted">Loading…</p>
 {:else if filtered.length === 0}
-  <p class="muted">
-    {exercises.length === 0
-      ? 'No exercises yet — create one, or load sample data from Settings.'
-      : 'Nothing matches your search.'}
-  </p>
+  {#if exercises.length === 0}
+    <p class="muted">No exercises yet — create one, or start from the built-in library.</p>
+    <button class="btn btn-primary" onclick={loadDefaultExercises} disabled={seeding}>
+      {seeding ? 'Loading…' : 'Load default exercises'}
+    </button>
+  {:else}
+    <p class="muted">Nothing matches your search.</p>
+  {/if}
 {:else}
   <div class="table-wrap">
     <table class="data-table">
