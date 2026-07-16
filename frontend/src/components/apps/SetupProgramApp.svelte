@@ -13,7 +13,7 @@
   import type { BodyPart, Exercise, ExperienceLevel, MeasurementType, ProgramTemplate, UserProfile } from '../../lib/db/types';
   import { WEEKDAYS_SHORT } from '../../lib/utils/dates';
   import { href } from '../../lib/paths';
-  import { generatePlan, allPresetExercises, PLAN_OPTIONS, type PlanType } from '../../lib/planPresets';
+  import { generatePlan, allPresetExercises, PLAN_OPTIONS, type PlanType, type GenExercise } from '../../lib/planPresets';
   import Card from '../Card.svelte';
 
   const EXPERIENCE_OPTIONS: { value: ExperienceLevel; label: string; blurb: string }[] = [
@@ -64,6 +64,18 @@
   let startToday = $state(true);
   /** Also add the full curated exercise library, not just what the plan uses. */
   let addUnusedExercises = $state(false);
+
+  // Library exercises offered in step 2 when "add unused exercises" is on:
+  // every preset not already in the wizard list. Names already referenced by
+  // a template row stay offered even if the box is later unchecked, so those
+  // rows don't silently point at a vanished <option>.
+  const libraryExtras = $derived.by(() => {
+    const taken = new Set(exercises.map((e) => e.name.toLowerCase()));
+    const referenced = new Set(templates.flatMap((t) => t.rows.map((r) => r.exerciseName)));
+    return allPresetExercises().filter(
+      (ex) => !taken.has(ex.name.toLowerCase()) && (addUnusedExercises || referenced.has(ex.name))
+    );
+  });
 
   // Add-exercise mini form (step 1)
   let newName = $state('');
@@ -220,23 +232,44 @@
         exerciseId.set(ex.name, id);
       }
 
+      // Library exercises picked in step 2 aren't in the wizard list — create
+      // (or reuse) any that a template row references, whatever the checkbox
+      // says now: once used, they're no longer "unused".
+      const presetByName = new Map(allPresetExercises().map((ex) => [ex.name, ex]));
+      const createPreset = async (ex: GenExercise) => {
+        const row = await put(
+          'exercises',
+          withSyncFields({
+            name: ex.name,
+            body_parts: ex.body_parts,
+            description: '',
+            video_url: null,
+            image_urls: [],
+            measurement_type: ex.measurement_type,
+          })
+        );
+        exerciseId.set(ex.name, row.id);
+      };
+      for (const t of templates) {
+        for (const row of t.rows) {
+          if (exerciseId.has(row.exerciseName)) continue;
+          const existingId = idByName.get(row.exerciseName.toLowerCase());
+          if (existingId) {
+            exerciseId.set(row.exerciseName, existingId);
+            continue;
+          }
+          const preset = presetByName.get(row.exerciseName);
+          if (preset) await createPreset(preset);
+        }
+      }
+
       // Optionally seed the full curated library too — exercises the program
       // doesn't use, so the user has more to build from later. Reuse by name.
       if (addUnusedExercises) {
         for (const ex of allPresetExercises()) {
           const key = ex.name.toLowerCase();
           if (idByName.has(key) || exerciseId.has(ex.name)) continue;
-          await put(
-            'exercises',
-            withSyncFields({
-              name: ex.name,
-              body_parts: ex.body_parts,
-              description: '',
-              video_url: null,
-              image_urls: [],
-              measurement_type: ex.measurement_type,
-            })
-          );
+          await createPreset(ex);
         }
       }
 
@@ -434,8 +467,8 @@
           Add Unused Exercises to Database
           <span class="muted">
             Also loads the full exercise library, not just the ones your program
-            uses — handy for building custom workouts later. Your program stays
-            built only from exercises that fit your plan.
+            uses — and lets you pick from it when building workout templates in
+            step 2.
           </span>
         </span>
       </label>
@@ -471,9 +504,22 @@
           {#each t.rows as row, ri (ri)}
             <div class="tpl-row">
               <select bind:value={row.exerciseName} aria-label="Exercise">
-                {#each exercises as ex}
-                  <option value={ex.name}>{ex.name}</option>
-                {/each}
+                {#if libraryExtras.length > 0}
+                  <optgroup label="Your exercises">
+                    {#each exercises as ex}
+                      <option value={ex.name}>{ex.name}</option>
+                    {/each}
+                  </optgroup>
+                  <optgroup label="Exercise library">
+                    {#each libraryExtras as ex (ex.name)}
+                      <option value={ex.name}>{ex.name}</option>
+                    {/each}
+                  </optgroup>
+                {:else}
+                  {#each exercises as ex}
+                    <option value={ex.name}>{ex.name}</option>
+                  {/each}
+                {/if}
               </select>
               <input type="number" min="1" max="20" bind:value={row.sets} placeholder="sets" aria-label="Sets" />
               {#if row.superset_group != null}
