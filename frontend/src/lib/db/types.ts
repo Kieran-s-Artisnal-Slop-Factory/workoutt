@@ -174,6 +174,29 @@ export interface Workout extends SyncFields {
   notes?: string | null;
 }
 
+export type AchievementScope = 'account' | 'exercise' | 'program' | 'program_template';
+
+/**
+ * An earned achievement. Definitions (title, thresholds…) live in code
+ * (lib/achievements/catalogue.ts); awards are durable data so they survive
+ * workout edits and sync across devices. Uniqueness is the tuple
+ * (achievement, scope_type, scope_id, tier) — evaluation only ever inserts
+ * missing tuples, never revokes (see acheivements.md).
+ */
+export interface AchievementAward extends SyncFields {
+  /** Catalogue id, e.g. 'one_tonne'. */
+  achievement: string;
+  scope_type: AchievementScope;
+  /** '' for account; exercise_id / program_id / program_template_id otherwise. */
+  scope_id: string;
+  /** 0 for single-tier achievements; 1,2,3… for tiered thresholds. */
+  tier: number;
+  /** UTC ISO 8601 — when it was awarded (first detected, for backfills). */
+  earned_at: string;
+  /** Measured value at award time (canonical units), for display. */
+  value: number | null;
+}
+
 export interface WorkoutExercise extends SyncFields {
   workout_id: string;
   exercise_id: string;
@@ -218,6 +241,7 @@ export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   workouts: { indexes: [{ name: 'program_id' }, { name: 'scheduled_on' }, { name: 'state' }] },
   workout_exercises: { indexes: [{ name: 'workout_id' }] },
   workout_sets: { indexes: [{ name: 'workout_exercise_id' }] },
+  achievement_awards: { indexes: [] },
 };
 
 export type StoreName = keyof typeof STORES;

@@ -74,6 +74,8 @@
     durationSec: number | null;
     exercises?: { name: string; sets: string[] }[];
     prs: { exercise: string; label: string; value: number; secondary: number | null }[];
+    /** Achievements unlocked by this workout. Absent on older payloads. */
+    achievements?: { title: string; description: string; scopeName: string | null }[];
   }
   let summary: WorkoutSummary | null = $state(null);
 
@@ -458,6 +460,22 @@
           </div>
         {/if}
 
+        {#if summary.achievements && summary.achievements.length > 0}
+          <div>
+            <p class="pr-heading">Achievements unlocked 🏅</p>
+            <ul class="new-prs">
+              {#each summary.achievements as ach}
+                <li>
+                  <strong>{ach.title}</strong>
+                  <span class="muted">
+                    {ach.scopeName ? `${ach.scopeName} — ` : ''}{ach.description}
+                  </span>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+
         {#if summary.exercises && summary.exercises.length > 0}
           <div class="summary-exercises">
             {#each summary.exercises as ex}
@@ -474,6 +492,9 @@
         {/if}
 
         <div class="modal-actions">
+          {#if summary.achievements && summary.achievements.length > 0}
+            <a class="btn" href={href('/achievements/')}>View achievements</a>
+          {/if}
           <button class="btn" onclick={() => (summary = null)}>Dismiss</button>
         </div>
       </div>

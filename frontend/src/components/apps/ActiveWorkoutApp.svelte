@@ -12,6 +12,7 @@
   } from '../../lib/services/workouts';
   import { formatDate, daysBetween, todayLocal } from '../../lib/utils/dates';
   import { computeRecords } from '../../lib/services/records';
+  import { evaluateAchievements } from '../../lib/achievements/evaluate';
   import { kgToDisplay, displayToKg, kmToDisplay, displayToKm, formatWeight, formatDistance, formatDuration } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
   import { href } from '../../lib/paths';
@@ -333,6 +334,14 @@
         name: i.exercise?.name ?? 'Unknown exercise',
         sets: i.sets.filter((s) => s.completed).map((s) => summarizeSet(s)),
       }));
+
+      // Award anything this workout unlocked; new ones join the summary.
+      const unlocked = (await evaluateAchievements()).map((n) => ({
+        title: n.def.title + (n.tierLabel ? ` ${n.tierLabel}` : ''),
+        description: n.def.description,
+        scopeName: n.scopeName,
+      }));
+
       sessionStorage.setItem(
         'workoutt-workout-summary',
         JSON.stringify({
@@ -342,6 +351,7 @@
           durationSec: startedAt ? Math.max(0, Math.round((Date.now() - Date.parse(startedAt)) / 1000)) : null,
           exercises: exerciseSummaries,
           prs,
+          achievements: unlocked,
         })
       );
     } catch (err) {

@@ -225,3 +225,23 @@ CREATE TABLE workout_sets (
 );
 
 CREATE INDEX idx_ws_workout_exercise ON workout_sets (workout_exercise_id);
+
+-- Earned achievements. Definitions live in frontend code
+-- (lib/achievements/catalogue.ts); awards are durable data. Uniqueness is
+-- (achievement, scope_type, scope_id, tier) — enforced client-side, since
+-- evaluation only inserts missing tuples (never revokes).
+CREATE TABLE achievement_awards (
+    id           TEXT PRIMARY KEY,
+    achievement  TEXT NOT NULL,   -- catalogue id, e.g. 'one_tonne'
+    scope_type   TEXT NOT NULL
+                 CHECK (scope_type IN ('account', 'exercise', 'program', 'program_template')),
+    scope_id     TEXT NOT NULL DEFAULT '',  -- '' for account scope
+    tier         INTEGER NOT NULL DEFAULT 0,
+    earned_at    TEXT NOT NULL,   -- UTC ISO 8601
+    value        REAL,            -- measured value at award time (canonical units)
+    updated_at   TEXT NOT NULL,
+    deleted_at   TEXT,
+    server_seq   INTEGER
+);
+
+CREATE INDEX idx_awards_scope ON achievement_awards (scope_type, scope_id);

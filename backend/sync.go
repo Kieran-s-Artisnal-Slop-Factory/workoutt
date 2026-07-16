@@ -48,6 +48,7 @@ var tableOrder = []string{
 	"workouts",
 	"workout_exercises",
 	"workout_sets",
+	"achievement_awards",
 }
 
 var tables = map[string]tableMeta{
@@ -96,6 +97,9 @@ var tables = map[string]tableMeta{
 	"workout_sets": {
 		columns:  cols("id", "workout_exercise_id", "position", "completed", "reps", "weight_kg", "time_seconds", "distance_km"),
 		boolCols: set("completed"),
+	},
+	"achievement_awards": {
+		columns: cols("id", "achievement", "scope_type", "scope_id", "tier", "earned_at", "value"),
 	},
 }
 

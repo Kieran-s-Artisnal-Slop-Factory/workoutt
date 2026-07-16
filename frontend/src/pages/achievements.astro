@@ -1,0 +1,11 @@
+---
+import Layout from '../layouts/Layout.astro';
+import AchievementsApp from '../components/apps/AchievementsApp.svelte';
+---
+
+<Layout title="Achievements">
+  <div class="page-header">
+    <h1>Achievements</h1>
+  </div>
+  <AchievementsApp client:only="svelte" />
+</Layout>

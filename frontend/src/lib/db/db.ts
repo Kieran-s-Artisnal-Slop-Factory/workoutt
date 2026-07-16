@@ -32,6 +32,13 @@ const MIGRATIONS: Migration[] = [
   (db) => {
     db.createObjectStore('sync_meta', { keyPath: 'key' });
   },
+  // v3 — achievement awards. Guarded: fresh databases already get it from
+  // the v1 STORES loop; this migration only upgrades pre-v3 databases.
+  (db) => {
+    if (!db.objectStoreNames.contains('achievement_awards')) {
+      db.createObjectStore('achievement_awards', { keyPath: 'id' });
+    }
+  },
 ];
 
 export const DB_VERSION = MIGRATIONS.length;

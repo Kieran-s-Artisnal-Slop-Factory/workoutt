@@ -27,6 +27,7 @@
     { href: href('/workouts/'), label: 'Workouts' },
     { href: href('/programs/'), label: 'Programs' },
     { href: href('/records/'), label: 'Records' },
+    { href: href('/achievements/'), label: 'Achievements' },
     { href: href('/settings/'), label: 'Settings' },
   ];
 
