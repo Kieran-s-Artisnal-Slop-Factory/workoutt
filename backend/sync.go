@@ -49,15 +49,18 @@ var tableOrder = []string{
 	"workout_exercises",
 	"workout_sets",
 	"achievement_awards",
+	"pets",
+	"pet_xp_events",
 }
 
 var tables = map[string]tableMeta{
 	"user_profile": {
 		columns: cols("id", "name", "highlighted_exercise_ids", "display_weight_unit",
 			"display_distance_unit", "age_years", "height_cm", "experience_level",
-			"weight_tracking_enabled", "weight_chart_months", "onboarding_completed_at"),
+			"weight_tracking_enabled", "weight_chart_months", "pets_enabled",
+			"pets_started_at", "active_pet_id", "pets_banked_xp", "onboarding_completed_at"),
 		jsonCols: set("highlighted_exercise_ids"),
-		boolCols: set("weight_tracking_enabled"),
+		boolCols: set("weight_tracking_enabled", "pets_enabled"),
 	},
 	"body_weight_entries": {
 		columns: cols("id", "weight_kg", "measured_on"),
@@ -100,6 +103,12 @@ var tables = map[string]tableMeta{
 	},
 	"achievement_awards": {
 		columns: cols("id", "achievement", "scope_type", "scope_id", "tier", "earned_at", "value"),
+	},
+	"pets": {
+		columns: cols("id", "species", "name", "xp", "hatched_at"),
+	},
+	"pet_xp_events": {
+		columns: cols("id", "source_type", "source_key", "pet_id", "xp", "created_at"),
 	},
 }
 

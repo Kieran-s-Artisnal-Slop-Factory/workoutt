@@ -40,6 +40,9 @@ export const STAGE_SIZES: Record<PetStage, number> = {
   jacked: 24,
 };
 
+/** Animations <PixelSprite> can play: JRPG idle bob, post-XP happy hop. */
+export type SpriteAnimation = 'none' | 'idle' | 'happy';
+
 export interface SpriteGrid {
   /** Edge length; `rows` is exactly `size` strings of `size` chars. */
   size: number;

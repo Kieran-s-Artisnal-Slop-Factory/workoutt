@@ -42,6 +42,12 @@ CREATE TABLE user_profile (
                              CHECK (experience_level IN ('beginner', 'intermediate', 'advanced')),
     weight_tracking_enabled  INTEGER NOT NULL DEFAULT 0,  -- boolean
     weight_chart_months      INTEGER NOT NULL DEFAULT 3,   -- months shown on the weight chart; 0 = all time
+    -- Pet collection game (see pets.md). pets_started_at marks the first
+    -- opt-in ever (NULL = never); pets_enabled is the live toggle.
+    pets_enabled             INTEGER NOT NULL DEFAULT 0,  -- boolean
+    pets_started_at          TEXT,                        -- UTC ISO 8601
+    active_pet_id            TEXT,                        -- REFERENCES pets(id); the XP recipient
+    pets_banked_xp           INTEGER NOT NULL DEFAULT 0,  -- XP accrued while disabled
     onboarding_completed_at  TEXT,                        -- UTC ISO 8601
     updated_at               TEXT NOT NULL,
     deleted_at               TEXT,
@@ -245,3 +251,38 @@ CREATE TABLE achievement_awards (
 );
 
 CREATE INDEX idx_awards_scope ON achievement_awards (scope_type, scope_id);
+
+-- Pet collection game (see pets.md). A pet's evolution stage is DERIVED
+-- from xp, never stored. Eggs are derived too: 1 (opt-in) + one per 5
+-- workout ledger events, minus pets hatched.
+CREATE TABLE pets (
+    id          TEXT PRIMARY KEY,
+    species     TEXT NOT NULL
+                CHECK (species IN ('turtle','frog','crab','lion','octopus',
+                                   'pangolin','dragon','snake','parakeet',
+                                   'monkey','cow','minotaur','hamster','scorpion')),
+    name        TEXT NOT NULL,
+    xp          INTEGER NOT NULL DEFAULT 0,  -- lifetime; stage derived
+    hatched_at  TEXT NOT NULL,               -- UTC ISO 8601
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    server_seq  INTEGER
+);
+
+-- XP idempotency ledger: one row per unique XP-worthy event. Uniqueness is
+-- (source_type, source_key), enforced client-side like award tuples.
+-- pet_id NULL = banked (accrued while the game was disabled).
+CREATE TABLE pet_xp_events (
+    id           TEXT PRIMARY KEY,
+    source_type  TEXT NOT NULL
+                 CHECK (source_type IN ('achievement', 'workout', 'bank_spend')),
+    source_key   TEXT NOT NULL,  -- award tuple / workout id / one-off grant id
+    pet_id       TEXT REFERENCES pets (id),
+    xp           INTEGER NOT NULL,
+    created_at   TEXT NOT NULL,  -- UTC ISO 8601
+    updated_at   TEXT NOT NULL,
+    deleted_at   TEXT,
+    server_seq   INTEGER
+);
+
+CREATE INDEX idx_pet_xp_source ON pet_xp_events (source_type, source_key);

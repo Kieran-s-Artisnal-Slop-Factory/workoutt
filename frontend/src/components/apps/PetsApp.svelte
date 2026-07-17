@@ -136,7 +136,7 @@
         <div class="sheet-row">
           {#each PET_STAGES as stage}
             <div class="sheet-cell">
-              <PixelSprite grid={set.stages[stage]} palette={set.palette} size={96} title={`${species} ${stage}`} />
+              <PixelSprite grid={set.stages[stage]} palette={set.palette} size={96} title={`${species} ${stage}`} animation="idle"/>
               <span class="muted">{stage}</span>
             </div>
           {/each}
@@ -179,7 +179,7 @@
           <h3 id="hatch-title">It's a {justHatched.species}!</h3>
           {#if set}
             <div class="hatch-reveal">
-              <PixelSprite grid={set.stages[stageForXp(justHatched.xp)]} palette={set.palette} size={128} title={justHatched.species} />
+              <PixelSprite grid={set.stages[stageForXp(justHatched.xp)]} palette={set.palette} size={128} title={justHatched.species} animation="happy"/>
             </div>
           {/if}
           {#if justHatched.xp > 0}
@@ -213,7 +213,7 @@
               disabled={busy}
               aria-label="Hatch an egg"
             >
-              <PixelSprite grid={EGG_SPRITE} palette={EGG_PALETTE} size={72} title="egg" />
+              <PixelSprite grid={EGG_SPRITE} palette={EGG_PALETTE} size={72} title="egg" animation="idle"/>
             </button>
           {/each}
         </div>
@@ -241,7 +241,8 @@
           <div class="pet-card" class:active={isActive}>
             {#if sprite}
               <div class="pet-sprite">
-                <PixelSprite grid={sprite.grid} palette={sprite.palette} size={88} title={`${pet.name} the ${pet.species}`} />
+                <PixelSprite grid={sprite.grid} palette={sprite.palette} size={88} title={`${pet.name} the ${pet.species}`} 
+                animation="idle"/>
               </div>
             {/if}
             {#if renamingId === pet.id}

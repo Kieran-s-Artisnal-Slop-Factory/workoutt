@@ -507,6 +507,7 @@
                 palette={set.palette}
                 size={56}
                 title={summary.pet.name}
+                animation="happy"
               />
             {/if}
             <div class="summary-pet-text">
@@ -610,6 +611,7 @@
             palette={set.palette}
             size={48}
             title={`${activePet.name} the ${activePet.species}`}
+            animation="idle"
           />
         {/if}
         <div class="pet-strip-info">
