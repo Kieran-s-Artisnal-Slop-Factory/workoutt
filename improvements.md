@@ -13,5 +13,5 @@ Do these tasks in order:
         1. `/docs/user/building-a-program.md` which contains a plain explanation of how to create a program, and what all the relevant peices are (how to create workouts, exercises, etc.). Everything you need to get started and understand programming for both people that know about fitness, and those who don't.
         2. `/docs/user/records-and-achievement.md` which contains information about weight tracking, PR's, and achievements
         3. `/docs/user/sync.md` which contains information about how to set up a sync server and the entire offline-first + sync architecture
-3. Add the option to repeat the onboarding
+3. ~~Add the option to repeat the onboarding~~
     1. Do not add duplicates of exercises, workouts or programs if they've already been added instead deferring to re-using the existing ones
