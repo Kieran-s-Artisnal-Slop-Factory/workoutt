@@ -52,6 +52,12 @@ flowchart LR
   re-enable choice described in §8).
 - State lives on `user_profile.pets_enabled` (synced, so all devices
   agree).
+- **Opt-in grant, regardless of history**: exactly **1 egg** and a
+  retroactive XP credit **capped at 1000** (one free full evolution). The
+  credit comes from the achievements backfill — existing awards pay XP
+  through the normal ledger until the cap is hit; awards beyond the cap
+  are ledgered at 0 so they can never pay later. A veteran maxes their
+  first pet immediately; everything after that is earned.
 
 ### 2. XP sources and scores
 
@@ -61,7 +67,7 @@ tier, each scope) pays out once. Suggested scores by effort:
 
 | Source | XP |
 | --- | --- |
-| Completing a workout | 40 + 2 per exercise with ≥1 completed set (typical session ≈ 50) |
+| Completing a workout | 40 flat — no per-exercise bonus, and "submit without stats" completions pay the same 40 |
 | Tier-less / tier-I achievements (First steps, Ten-timer, Century…) | 15 |
 | Tier II | 25 |
 | Tier III / rare account ones (Streak, Well-rounded, 100 workouts) | 40 |
@@ -75,10 +81,10 @@ tier.
 - One egg is granted at opt-in; one more for every **5 completed workouts**
   while the feature is enabled (a lifetime counter, not a streak — missing
   days never loses progress toward an egg).
-- Hatching draws a random species. **Duplicate protection**: draw from
-  species the user doesn't own yet until all 10 are collected; after
-  completion, draws are fully random (dupes allowed — they can be evolved
-  too and named differently).
+- Hatching draws a random species **the user doesn't own yet** — no
+  duplicates, ever. Once all 10 are collected, egg accrual stops (the
+  workouts-toward-egg counter freezes; the Pets page swaps the egg-progress
+  line for a "collection complete 🏆" state).
 - Species roster (10): Turtle, Frog, Crab, Lion, Octopus, Pangolin,
   Dragon, Snake, Parakeet, Monkey.
 - **Naming**: free-text input, or a "Roll a name" button. Generated names
@@ -117,10 +123,11 @@ changes retro-apply cleanly (same philosophy as PRs).
 Target: fully evolve one animal in **~50 achievements or ~20 workouts**.
 
 - 50 achievements × ~20 XP avg = **1000 XP** ✓
-- 20 workouts × ~50 XP = **1000 XP** ✓
-- Realistic mixed play is faster (workouts *generate* achievements), which
-  is fine — a fresh user doing 3 workouts/week fully evolves their first
-  pet in roughly 4–6 weeks, right when novelty needs reinforcing.
+- 20 workouts × 40 XP = 800 XP — but workouts *generate* achievements
+  (First steps, Consistency I, a spread of Ten-timers and One tonnes…), so
+  20 real workouts comfortably clear the remaining ~200 XP in practice ✓
+- A fresh user doing 3 workouts/week fully evolves their first pet in
+  roughly 4–6 weeks, right when novelty needs reinforcing.
 - Egg pacing: every 5 workouts ≈ 250 XP ≈ one evolution stage — so the
   collection grows at about the rate one pet matures. Collecting all 10
   species ≈ 45–50 workouts (~4 months at 3/week): a good long tail.
@@ -201,9 +208,11 @@ Why a ledger instead of just incrementing `pets.xp`:
 - **Auditability**: the Pets page can show "recent gains" trivially.
 
 `pets.xp` is kept as a denormalized running total (updated in the same
-write batch as the ledger insert) so rendering never scans the ledger; a
-`recomputePetXp()` repair helper can rebuild totals from the ledger after
-imports.
+write batch as the ledger insert) so rendering never scans the ledger.
+Cross-device races (two offline devices granting to different pets, or a
+lost increment under LWW) are **deliberately accepted** — the drift is
+small, single-user, and cosmetic; reconciliation machinery isn't worth its
+complexity.
 
 ## Granting flow
 
@@ -242,10 +251,10 @@ Hook points (both already exist):
   (`workoutt-workout-summary`), rendering a "🐢 Tank evolved!" block in
   the same modal that shows PRs and achievements.
 
-Note: the egg-cadence counter counts workouts completed *after opt-in*
-(store `pets_workouts_at_optin` or count ledger workout events) so a
-300-workout veteran doesn't instantly get 60 eggs — first-egg-plus-earned
-keeps the collection loop meaningful. (Open question below.)
+The egg-cadence counter counts workouts completed *after opt-in* (count
+ledger workout events, which only exist post-opt-in) — a 300-workout
+veteran gets the single opt-in egg, not 60. First-egg-plus-earned keeps
+the collection loop meaningful.
 
 ## Pixel art
 
@@ -281,24 +290,15 @@ model doesn't care.
    re-enable modal, onboarding checkbox, homepage widget, summary-modal
    evolution block.
 
-## Open questions / decisions to confirm
+## Resolved decisions
 
-- **Retroactive eggs**: on opt-in, is it 1 egg flat (recommended — keeps
-  the loop alive), or should existing workout history also grant eggs
-  (a veteran opens 60 at once, collection is instantly complete)?
-- **Retroactive XP windfall**: the achievements backfill will pay banked
-  XP for all existing awards on opt-in (~193 awards on the heavy seed ≈
-  3,900 XP ≈ 4 fully evolved pets' worth). Cap it (e.g. max 1000 XP from
-  backfill), or embrace the head start? Recommend a cap at exactly one
-  full evolution (1000) so the first pet can be maxed instantly but the
-  rest are earned.
-- **Duplicate species after completion**: allowed (recommended, keeps eggs
-  meaningful) vs. converting dupes into bonus XP.
-- **XP for skipped-set workouts**: "submit without stats" completions
-  (past-date modal) currently count as completed workouts — should they
-  pay workout XP? Recommend yes but with the base 40 only (no per-exercise
-  bonus, which is naturally 0).
-- **Multi-device races**: two devices completing workouts offline could
-  both pick different active pets; ledger rows merge fine (unique ids),
-  totals reconcile via `recomputePetXp()` on sync-pull events. Confirm
-  that's acceptable vs. stricter (and heavier) schemes.
+- **Opt-in grant**: exactly 1 retroactive egg and a retroactive XP credit
+  capped at 1000 — one free full evolution, nothing more (see §1).
+- **No duplicate species**: eggs always hatch an unowned species; egg
+  accrual stops once all 10 are collected.
+- **Workout XP is 40 flat**: no per-exercise bonus, and "submit without
+  stats" completions pay the same 40 as any other completed workout.
+- **Cross-device races are accepted**: ledger rows merge fine (unique
+  ids); minor XP drift on the denormalized totals under LWW is cosmetic
+  and not worth reconciliation machinery. If someone games it with two
+  phones, life's too short.
