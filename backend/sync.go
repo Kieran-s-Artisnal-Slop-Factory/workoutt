@@ -51,6 +51,7 @@ var tableOrder = []string{
 	"achievement_awards",
 	"pets",
 	"pet_xp_events",
+	"pet_active_spans",
 }
 
 var tables = map[string]tableMeta{
@@ -58,9 +59,10 @@ var tables = map[string]tableMeta{
 		columns: cols("id", "name", "highlighted_exercise_ids", "display_weight_unit",
 			"display_distance_unit", "age_years", "height_cm", "experience_level",
 			"weight_tracking_enabled", "weight_chart_months", "pets_enabled",
-			"pets_started_at", "active_pet_id", "pets_banked_xp", "onboarding_completed_at"),
+			"pets_started_at", "active_pet_id", "pets_banked_xp", "pets_allow_duplicates",
+			"onboarding_completed_at"),
 		jsonCols: set("highlighted_exercise_ids"),
-		boolCols: set("weight_tracking_enabled", "pets_enabled"),
+		boolCols: set("weight_tracking_enabled", "pets_enabled", "pets_allow_duplicates"),
 	},
 	"body_weight_entries": {
 		columns: cols("id", "weight_kg", "measured_on"),
@@ -109,6 +111,9 @@ var tables = map[string]tableMeta{
 	},
 	"pet_xp_events": {
 		columns: cols("id", "source_type", "source_key", "pet_id", "xp", "created_at"),
+	},
+	"pet_active_spans": {
+		columns: cols("id", "pet_id", "started_at", "ended_at"),
 	},
 }
 

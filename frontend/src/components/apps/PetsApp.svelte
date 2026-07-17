@@ -7,17 +7,30 @@
     eggProgress,
     enablePets,
     hatchEgg,
+    petActiveMs,
+    petAgeMs,
     petsEnabled,
     petsStarted,
+    petStageTimeline,
+    petTopBodyParts,
     renamePet,
     setActivePet,
+    setAllowDuplicates,
     unownedSpecies,
+    type StageReached,
   } from '../../lib/pets/xp';
   import { nextThreshold, stageForXp, STAGE_LABELS, STAGE_THRESHOLDS } from '../../lib/pets/config';
   import { randomName } from '../../lib/pets/names';
-  import { SPRITES, EGG_SPRITE, EGG_PALETTE, PET_STAGES, type PetSpecies } from '../../lib/pets/sprites';
+  import {
+    SPRITES,
+    EGG_SPRITE,
+    EGG_PALETTE,
+    PET_STAGES,
+    type PetSpecies,
+    type PetStage,
+  } from '../../lib/pets/sprites';
   import { href } from '../../lib/paths';
-  import type { Pet, UserProfile } from '../../lib/db/types';
+  import type { BodyPart, Pet, UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
   import PixelSprite from '../PixelSprite.svelte';
 
@@ -27,6 +40,7 @@
   let eggs = $state(0);
   let progress = $state({ done: 0, needed: 5 });
   let remainingSpecies = $state(0);
+  let allowDuplicates = $state(false);
   let busy = $state(false);
 
   // Hatch reveal: the freshly hatched pet, shown with a name editor.
@@ -37,6 +51,13 @@
   // Inline rename on a collection card.
   let renamingId: string | null = $state(null);
   let renameValue = $state('');
+
+  // Per-pet overview modal (improvements.md task 1).
+  let detailPet: Pet | null = $state(null);
+  let detailStages: StageReached[] = $state([]);
+  let detailActiveMs = $state(0);
+  let detailBodyParts: { part: BodyPart; count: number }[] = $state([]);
+  let detailStageView: PetStage = $state('baby');
 
   // Dev sprite sheet (?sheet=1).
   let showSheet = $state(false);
@@ -53,6 +74,7 @@
     eggs = await eggsAvailable();
     progress = await eggProgress();
     remainingSpecies = (await unownedSpecies(pets)).length;
+    allowDuplicates = profile?.pets_allow_duplicates ?? false;
   }
 
   const started = $derived(petsStarted(profile));
@@ -99,6 +121,61 @@
   async function makeActive(pet: Pet) {
     await setActivePet(pet.id);
     await refresh();
+    if (detailPet?.id === pet.id) detailPet = pets.find((p) => p.id === pet.id) ?? detailPet;
+  }
+
+  async function toggleDuplicates(value: boolean) {
+    allowDuplicates = value;
+    await setAllowDuplicates(value);
+    await refresh();
+  }
+
+  // ── Per-pet overview modal ──────────────────────────────────────────────
+  async function openDetail(pet: Pet) {
+    detailPet = pet;
+    detailStageView = stageForXp(pet.xp);
+    [detailStages, detailActiveMs, detailBodyParts] = await Promise.all([
+      petStageTimeline(pet),
+      petActiveMs(pet.id),
+      petTopBodyParts(pet.id),
+    ]);
+  }
+
+  function closeDetail() {
+    detailPet = null;
+  }
+
+  const BODY_PART_LABEL = (bp: BodyPart): string =>
+    bp.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+
+  function formatDate(iso: string): string {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  }
+
+  /** Coarse, human duration: up to two units (e.g. "4 months, 6 days"). */
+  function humanizeDuration(ms: number): string {
+    const mins = Math.floor(ms / 60_000);
+    if (mins < 1) return 'less than a minute';
+    const hours = Math.floor(mins / 60);
+    const days = Math.floor(hours / 24);
+    const months = Math.floor(days / 30);
+    const years = Math.floor(days / 365);
+    const unit = (n: number, s: string) => `${n} ${s}${n === 1 ? '' : 's'}`;
+    if (years >= 1) {
+      const rem = Math.floor((days - years * 365) / 30);
+      return rem ? `${unit(years, 'year')}, ${unit(rem, 'month')}` : unit(years, 'year');
+    }
+    if (months >= 1) {
+      const rem = days - months * 30;
+      return rem ? `${unit(months, 'month')}, ${unit(rem, 'day')}` : unit(months, 'month');
+    }
+    if (days >= 1) return unit(days, 'day');
+    if (hours >= 1) return unit(hours, 'hour');
+    return unit(mins, 'minute');
   }
 
   function startRename(pet: Pet) {
@@ -202,6 +279,80 @@
       </div>
     {/if}
 
+    {#if detailPet}
+      {@const pet = detailPet}
+      {@const set = SPRITES[pet.species as PetSpecies]}
+      {@const curStage = stageForXp(pet.xp)}
+      <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+        <div class="modal detail-modal">
+          <button class="close-x" onclick={closeDetail} aria-label="Close">×</button>
+          <h3 id="detail-title">{pet.name}</h3>
+          <span class="muted">{STAGE_LABELS[curStage]} {pet.species}</span>
+
+          {#if set}
+            <div class="detail-focus">
+              <PixelSprite
+                grid={set.stages[detailStageView]}
+                palette={set.palette}
+                size={140}
+                title={`${pet.name} (${detailStageView})`}
+                animation="idle"
+              />
+            </div>
+
+            <!-- Evolution history — tap a reached form to view it. -->
+            <div class="stage-row">
+              {#each detailStages as st (st.stage)}
+                {@const reached = st.reachedAt != null}
+                <button
+                  class="stage-cell"
+                  class:selected={detailStageView === st.stage}
+                  class:locked={!reached}
+                  disabled={!reached}
+                  onclick={() => (detailStageView = st.stage)}
+                >
+                  <div class="stage-thumb">
+                    <PixelSprite grid={set.stages[st.stage]} palette={set.palette} size={48} title={st.stage} />
+                  </div>
+                  <span class="stage-name">{STAGE_LABELS[st.stage]}</span>
+                  <span class="stage-when muted">
+                    {reached ? formatDate(st.reachedAt!) : '🔒 locked'}
+                  </span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+
+          <dl class="detail-stats">
+            <div><dt>Age</dt><dd>{humanizeDuration(petAgeMs(pet))}</dd></div>
+            <div><dt>Time active</dt><dd>{humanizeDuration(detailActiveMs)}</dd></div>
+            <div><dt>Lifetime XP</dt><dd>{pet.xp} XP</dd></div>
+          </dl>
+
+          {#if detailBodyParts.length > 0}
+            <div class="trains">
+              <span class="muted">Mostly trains</span>
+              <div class="chips">
+                {#each detailBodyParts as bp (bp.part)}
+                  <span class="chip">{BODY_PART_LABEL(bp.part)}</span>
+                {/each}
+              </div>
+            </div>
+          {:else}
+            <p class="muted">Train with this pet active to see which muscles it works.</p>
+          {/if}
+
+          <div class="modal-actions">
+            {#if profile?.active_pet_id === pet.id}
+              <span class="active-badge">Active — gaining XP</span>
+            {:else}
+              <button class="btn btn-primary" onclick={() => makeActive(pet)}>Make active</button>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/if}
+
     {#if enabled && eggs > 0}
       <Card title={eggs === 1 ? 'You have an egg!' : `You have ${eggs} eggs!`}>
         <div class="egg-tray">
@@ -218,12 +369,29 @@
           {/each}
         </div>
         <p class="muted" style="margin-top: var(--space-2);">Tap an egg to hatch it.</p>
+        <label class="dup-toggle">
+          <input
+            type="checkbox"
+            checked={allowDuplicates || collectionComplete}
+            disabled={collectionComplete || busy}
+            onchange={(e) => toggleDuplicates(e.currentTarget.checked)}
+          />
+          Allow duplicate species
+        </label>
+        <p class="muted dup-note">
+          {#if collectionComplete}
+            You own every species — new eggs now hatch duplicates.
+          {:else}
+            Off by default: eggs hatch a species you don't own yet.
+          {/if}
+        </p>
       </Card>
     {/if}
 
-    {#if collectionComplete}
-      <p class="notice">Collection complete 🏆 — all 14 species are yours.</p>
-    {:else if enabled}
+    {#if enabled}
+      {#if collectionComplete}
+        <p class="notice">All 14 species collected 🏆 — eggs now hatch duplicates.</p>
+      {/if}
       <p class="muted">
         {progress.needed - progress.done}
         {progress.needed - progress.done === 1 ? 'workout' : 'workouts'} to your
@@ -240,10 +408,15 @@
           {@const isActive = profile?.active_pet_id === pet.id}
           <div class="pet-card" class:active={isActive}>
             {#if sprite}
-              <div class="pet-sprite">
-                <PixelSprite grid={sprite.grid} palette={sprite.palette} size={88} title={`${pet.name} the ${pet.species}`} 
+              <button
+                class="pet-sprite"
+                onclick={() => openDetail(pet)}
+                title={`View ${pet.name}'s forms and history`}
+                aria-label={`View ${pet.name}'s forms and history`}
+              >
+                <PixelSprite grid={sprite.grid} palette={sprite.palette} size={88} title={`${pet.name} the ${pet.species}`}
                 animation="idle"/>
-              </div>
+              </button>
             {/if}
             {#if renamingId === pet.id}
               <div class="name-row">
@@ -350,6 +523,15 @@
 
   .pet-sprite {
     image-rendering: pixelated;
+    background: none;
+    border: none;
+    padding: var(--space-1);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+  }
+
+  .pet-sprite:hover {
+    background: var(--color-primary-soft);
   }
 
   .pet-name {
@@ -441,5 +623,131 @@
     border: 1px solid var(--color-primary);
     border-radius: var(--radius-md);
     padding: var(--space-3);
+  }
+
+  .dup-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    cursor: pointer;
+  }
+
+  .dup-note {
+    font-size: var(--font-size-sm);
+    margin-top: var(--space-1);
+  }
+
+  /* ── Per-pet detail modal ── */
+  .detail-modal {
+    text-align: center;
+    position: relative;
+    max-width: 30rem;
+  }
+
+  .close-x {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-3);
+    background: none;
+    border: none;
+    font-size: 1.6rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--text-muted-color, var(--text-color));
+  }
+
+  .detail-focus {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-2);
+    image-rendering: pixelated;
+  }
+
+  .stage-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-2);
+  }
+
+  .stage-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    background: none;
+    border: 2px solid transparent;
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-1);
+    cursor: pointer;
+  }
+
+  .stage-cell:not(:disabled):hover {
+    background: var(--color-primary-soft);
+  }
+
+  .stage-cell.selected {
+    border-color: var(--color-primary);
+    background: var(--color-primary-soft);
+  }
+
+  .stage-cell.locked {
+    cursor: default;
+    opacity: 0.5;
+    filter: grayscale(1);
+  }
+
+  .stage-thumb {
+    image-rendering: pixelated;
+  }
+
+  .stage-name {
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+  }
+
+  .stage-when {
+    font-size: var(--font-size-xs, 0.72rem);
+  }
+
+  .detail-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-2);
+    margin: 0;
+    text-align: center;
+  }
+
+  .detail-stats dt {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color, var(--text-color));
+  }
+
+  .detail-stats dd {
+    margin: 0;
+    font-weight: 700;
+  }
+
+  .trains {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .chips {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .chip {
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+    background: var(--color-primary-soft);
+    color: var(--color-primary-strong);
+    border-radius: var(--radius-full);
+    padding: var(--space-1) var(--space-3);
   }
 </style>

@@ -49,6 +49,14 @@ const MIGRATIONS: Migration[] = [
       store.createIndex('source_key', 'source_key', { multiEntry: false });
     }
   },
+  // v5 — active-pet history for the pets overview page (improvements.md
+  // task 1). Guarded like v3/v4.
+  (db) => {
+    if (!db.objectStoreNames.contains('pet_active_spans')) {
+      const store = db.createObjectStore('pet_active_spans', { keyPath: 'id' });
+      store.createIndex('pet_id', 'pet_id', { multiEntry: false });
+    }
+  },
 ];
 
 export const DB_VERSION = MIGRATIONS.length;

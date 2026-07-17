@@ -10,9 +10,19 @@
  * are deliberately accepted (see pets.md "Resolved decisions").
  */
 import { all, byIndex, get, put, withSyncFields, nowIso } from '../db/repo';
-import type { AchievementAward, Pet, PetXpEvent, PetXpSource, UserProfile } from '../db/types';
+import type {
+  AchievementAward,
+  BodyPart,
+  Exercise,
+  Pet,
+  PetActiveSpan,
+  PetXpEvent,
+  PetXpSource,
+  UserProfile,
+  WorkoutExercise,
+} from '../db/types';
 import { xpForAward } from '../achievements/catalogue';
-import { EGG_EVERY_N_WORKOUTS, OPTIN_XP_CAP, stageForXp } from './config';
+import { EGG_EVERY_N_WORKOUTS, OPTIN_XP_CAP, STAGE_THRESHOLDS, stageForXp } from './config';
 import { PET_SPECIES, type PetSpecies, type PetStage } from './sprites/types';
 
 export interface XpEventInput {
@@ -50,10 +60,25 @@ export async function allPets(): Promise<Pet[]> {
   return (await all<Pet>('pets')).sort((a, b) => a.hatched_at.localeCompare(b.hatched_at));
 }
 
-/** Species not owned yet — hatching never duplicates (pets.md). */
+/** Species not owned yet — the default (no-duplicate) hatch pool (pets.md). */
 export async function unownedSpecies(pets?: Pet[]): Promise<PetSpecies[]> {
   const owned = new Set((pets ?? (await allPets())).map((p) => p.species));
   return PET_SPECIES.filter((s) => !owned.has(s));
+}
+
+/** True once every species is owned (forces duplicates on, eggs keep flowing). */
+export async function allSpeciesOwned(pets?: Pet[]): Promise<boolean> {
+  return (await unownedSpecies(pets)).length === 0;
+}
+
+/**
+ * Whether a hatch may draw an already-owned species. The user's preference
+ * (`pets_allow_duplicates`, default off), OR forced on when the collection is
+ * complete — otherwise there would be nothing left to hatch (improvements.md
+ * task 1.3.2).
+ */
+function duplicatesEffective(profile: UserProfile | undefined, unownedCount: number): boolean {
+  return (profile?.pets_allow_duplicates ?? false) || unownedCount === 0;
 }
 
 async function workoutEventCount(): Promise<number> {
@@ -63,16 +88,18 @@ async function workoutEventCount(): Promise<number> {
 
 /**
  * Eggs waiting to hatch, derived: 1 (opt-in) + one per EGG_EVERY_N_WORKOUTS
- * post-opt-in workouts, minus pets already hatched. 0 once the collection
- * is complete (nothing left to hatch).
+ * post-opt-in workouts, minus pets already hatched. With duplicates off and
+ * a complete collection the surplus is capped to the remaining species (0
+ * when none remain); with duplicates on, eggs keep flowing indefinitely.
  */
 export async function eggsAvailable(): Promise<number> {
   const profile = await profileRow();
   if (!petsStarted(profile)) return 0;
   const pets = await allPets();
-  if ((await unownedSpecies(pets)).length === 0) return 0;
+  const unowned = await unownedSpecies(pets);
   const earned = 1 + Math.floor((await workoutEventCount()) / EGG_EVERY_N_WORKOUTS);
-  return Math.max(0, earned - pets.length);
+  const surplus = Math.max(0, earned - pets.length);
+  return duplicatesEffective(profile, unowned.length) ? surplus : Math.min(surplus, unowned.length);
 }
 
 /** Workouts logged toward the next egg (for "3 / 5" progress UI). */
@@ -158,17 +185,22 @@ export async function grantXp(events: XpEventInput[]): Promise<GrantResult | nul
 }
 
 /**
- * Hatch one egg into a random unowned species with a generated name (the
- * player names it after the reveal — renamePet below). The first-ever pet
- * becomes active and scoops up any banked XP (that's how the opt-in credit
- * "maxes the first pet immediately" for veterans, pets.md §1).
+ * Hatch one egg into a random species with a generated name (the player names
+ * it after the reveal — renamePet below). Draws an unowned species by default;
+ * once the user allows duplicates (or owns everything) the pool is every
+ * species, so owned ones can recur. The first-ever pet becomes active and
+ * scoops up any banked XP (that's how the opt-in credit "maxes the first pet
+ * immediately" for veterans, pets.md §1).
  */
 export async function hatchEgg(): Promise<Pet | null> {
   if ((await eggsAvailable()) < 1) return null;
   const profile = await profileRow();
   if (!profile) return null;
   const pets = await allPets();
-  const pool = await unownedSpecies(pets);
+  const unowned = await unownedSpecies(pets);
+  const pool: readonly PetSpecies[] = duplicatesEffective(profile, unowned.length)
+    ? PET_SPECIES
+    : unowned;
   if (pool.length === 0) return null;
   const species = pool[Math.floor(Math.random() * pool.length)];
   const { randomName } = await import('./names');
@@ -199,6 +231,7 @@ export async function hatchEgg(): Promise<Pet | null> {
     ...(isFirst && bank > 0 ? { pets_banked_xp: 0 } : {}),
     ...(profile.active_pet_id ? {} : { active_pet_id: pet.id }),
   });
+  await reconcileActiveSpan();
   return pet;
 }
 
@@ -206,6 +239,145 @@ export async function setActivePet(petId: string): Promise<void> {
   const profile = await profileRow();
   if (!profile) return;
   await put('user_profile', { ...profile, active_pet_id: petId });
+  await reconcileActiveSpan();
+}
+
+/** Persist the "allow duplicate species" preference (improvements.md 1.3.2). */
+export async function setAllowDuplicates(value: boolean): Promise<void> {
+  const profile = await profileRow();
+  if (!profile) return;
+  await put('user_profile', { ...profile, pets_allow_duplicates: value });
+}
+
+// ── Active-pet history ───────────────────────────────────────────────────
+// One pet_active_spans row per stretch a pet was the active pet while the
+// game was enabled (ended_at null = current). Cumulative active time and the
+// "when did each stage happen" indicators on the overview are derived from
+// these plus the XP ledger — nothing extra is stored.
+
+/** The currently-open spans (should be at most one; sync races may add more). */
+async function openActiveSpans(): Promise<PetActiveSpan[]> {
+  return (await all<PetActiveSpan>('pet_active_spans')).filter((s) => s.ended_at == null);
+}
+
+/**
+ * Enforce the invariant: exactly one open span for the active pet iff the game
+ * is enabled with an active pet; otherwise none. Idempotent and self-healing —
+ * closes strays (including duplicate opens from cross-device races) and opens
+ * one if missing. Called after every activate / hatch / enable / disable.
+ */
+async function reconcileActiveSpan(): Promise<void> {
+  const profile = await profileRow();
+  const target = petsEnabled(profile) ? (profile?.active_pet_id ?? null) : null;
+  const now = nowIso();
+  let kept = false;
+  for (const span of await openActiveSpans()) {
+    if (span.pet_id === target && !kept) {
+      kept = true; // keep exactly one open span for the target
+    } else {
+      await put('pet_active_spans', { ...span, ended_at: now });
+    }
+  }
+  if (target && !kept) {
+    await put(
+      'pet_active_spans',
+      withSyncFields({ pet_id: target, started_at: now, ended_at: null })
+    );
+  }
+}
+
+/** Total ms a pet has spent as the active pet, summed across all its spans. */
+export async function petActiveMs(petId: string, now = Date.now()): Promise<number> {
+  const spans = await byIndex<PetActiveSpan>('pet_active_spans', 'pet_id', petId);
+  return spans.reduce((ms, s) => {
+    const end = s.ended_at ? Date.parse(s.ended_at) : now;
+    return ms + Math.max(0, end - Date.parse(s.started_at));
+  }, 0);
+}
+
+/** ms since the pet hatched — its age, independent of time spent active. */
+export function petAgeMs(pet: Pet, now = Date.now()): number {
+  return Math.max(0, now - Date.parse(pet.hatched_at));
+}
+
+export interface StageReached {
+  stage: PetStage;
+  xp: number;
+  /** When the pet first crossed this threshold; null = not yet reached. */
+  reachedAt: string | null;
+}
+
+/**
+ * When this pet entered each evolution stage, reconstructed from its XP ledger
+ * (rows sorted by created_at, running total). Baby is "reached" at hatch. Used
+ * for the overview's stage indicators (improvements.md task 1.2). The ledger,
+ * not the denormalized pet.xp, is authoritative here.
+ */
+export async function petStageTimeline(pet: Pet): Promise<StageReached[]> {
+  const events = (await all<PetXpEvent>('pet_xp_events'))
+    .filter((e) => e.pet_id === pet.id)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+  const out: StageReached[] = STAGE_THRESHOLDS.map((t) => ({
+    stage: t.stage,
+    xp: t.xp,
+    reachedAt: t.xp === 0 ? pet.hatched_at : null,
+  }));
+
+  let cum = 0;
+  for (const e of events) {
+    const before = cum;
+    cum += e.xp;
+    for (const s of out) {
+      if (s.reachedAt == null && before < s.xp && cum >= s.xp) s.reachedAt = e.created_at;
+    }
+  }
+  return out;
+}
+
+/**
+ * The pet's most-trained body parts, attributed from the XP it actually earned
+ * (improvements.md task 1.4): workout events → the workout's exercises' body
+ * parts; exercise-scoped achievement events → that exercise's body parts.
+ * Account/program-scoped achievements have no single muscle and are skipped.
+ */
+export async function petTopBodyParts(
+  petId: string,
+  topN = 3
+): Promise<{ part: BodyPart; count: number }[]> {
+  const events = (await all<PetXpEvent>('pet_xp_events')).filter(
+    (e) => e.pet_id === petId && e.xp > 0
+  );
+  if (events.length === 0) return [];
+
+  const [wexAll, exAll] = await Promise.all([
+    all<WorkoutExercise>('workout_exercises'),
+    all<Exercise>('exercises'),
+  ]);
+  const exBodyParts = new Map<string, BodyPart[]>(exAll.map((ex) => [ex.id, ex.body_parts]));
+  const exByWorkout = new Map<string, string[]>();
+  for (const w of wexAll) {
+    const arr = exByWorkout.get(w.workout_id) ?? [];
+    arr.push(w.exercise_id);
+    exByWorkout.set(w.workout_id, arr);
+  }
+
+  const tally = new Map<BodyPart, number>();
+  const bump = (parts: BodyPart[] | undefined) => {
+    for (const p of parts ?? []) tally.set(p, (tally.get(p) ?? 0) + 1);
+  };
+  for (const e of events) {
+    if (e.source_type === 'workout') {
+      for (const exId of exByWorkout.get(e.source_key) ?? []) bump(exBodyParts.get(exId));
+    } else if (e.source_type === 'achievement') {
+      const [, scopeType, scopeId] = e.source_key.split('|');
+      if (scopeType === 'exercise' && scopeId) bump(exBodyParts.get(scopeId));
+    }
+  }
+  return [...tally.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(([part, count]) => ({ part, count }));
 }
 
 export async function renamePet(petId: string, name: string): Promise<void> {
@@ -228,6 +400,7 @@ export async function enablePets(): Promise<{ firstTime: boolean; bankedXp: numb
 
   if (petsStarted(profile)) {
     await put('user_profile', { ...profile, pets_enabled: true });
+    await reconcileActiveSpan();
     return { firstTime: false, bankedXp: profile.pets_banked_xp ?? 0 };
   }
 
@@ -264,6 +437,7 @@ export async function disablePets(): Promise<void> {
   const profile = await profileRow();
   if (!profile) return;
   await put('user_profile', { ...profile, pets_enabled: false });
+  await reconcileActiveSpan();
 }
 
 /** Re-enable choice: grant the bank to the active pet. */

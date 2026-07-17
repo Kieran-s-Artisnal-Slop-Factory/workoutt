@@ -48,6 +48,7 @@ const USER_STORES = [
   'achievement_awards',
   'pets',
   'pet_xp_events',
+  'pet_active_spans',
 ];
 
 export function storesForScope(scope: ExportScope): string[] {

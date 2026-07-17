@@ -90,6 +90,12 @@ export interface UserProfile extends SyncFields {
   active_pet_id?: string | null;
   /** XP accrued while the game was disabled, spendable on re-enable. */
   pets_banked_xp?: number;
+  /**
+   * When true, eggs may hatch a species already owned (and keep accruing
+   * past a full collection). Default false — read with `?? false`. Forced
+   * true once every species is owned, since there is nothing new to hatch.
+   */
+  pets_allow_duplicates?: boolean;
   onboarding_completed_at: string | null;
 }
 
@@ -119,6 +125,20 @@ export interface PetXpEvent extends SyncFields {
   xp: number;
   /** UTC ISO 8601. */
   created_at: string;
+}
+
+/**
+ * One stretch during which a pet was the active pet (while the game was
+ * enabled). `ended_at` null = currently active. Cumulative active time is
+ * Σ over a pet's spans of (ended_at ?? now) − started_at — distinct from
+ * age (now − hatched_at). See lib/pets/xp.ts petActiveMs().
+ */
+export interface PetActiveSpan extends SyncFields {
+  pet_id: string;
+  /** UTC ISO 8601. */
+  started_at: string;
+  /** UTC ISO 8601, or null while still active. */
+  ended_at: string | null;
 }
 
 export interface BodyWeightEntry extends SyncFields {
@@ -283,6 +303,7 @@ export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   achievement_awards: { indexes: [] },
   pets: { indexes: [] },
   pet_xp_events: { indexes: [{ name: 'source_key' }] },
+  pet_active_spans: { indexes: [{ name: 'pet_id' }] },
 };
 
 export type StoreName = keyof typeof STORES;

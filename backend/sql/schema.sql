@@ -48,6 +48,7 @@ CREATE TABLE user_profile (
     pets_started_at          TEXT,                        -- UTC ISO 8601
     active_pet_id            TEXT,                        -- REFERENCES pets(id); the XP recipient
     pets_banked_xp           INTEGER NOT NULL DEFAULT 0,  -- XP accrued while disabled
+    pets_allow_duplicates    INTEGER NOT NULL DEFAULT 0,  -- boolean; let eggs hatch owned species again
     onboarding_completed_at  TEXT,                        -- UTC ISO 8601
     updated_at               TEXT NOT NULL,
     deleted_at               TEXT,
@@ -286,3 +287,19 @@ CREATE TABLE pet_xp_events (
 );
 
 CREATE INDEX idx_pet_xp_source ON pet_xp_events (source_type, source_key);
+
+-- Active-pet history: one span per stretch a pet was the active pet (while
+-- the game was enabled). ended_at NULL = still active. Cumulative "time
+-- active" is Σ (ended_at or now − started_at); a pet's age is now −
+-- hatched_at, independent of activity. See pets.md §"Pets overview".
+CREATE TABLE pet_active_spans (
+    id          TEXT PRIMARY KEY,
+    pet_id      TEXT NOT NULL REFERENCES pets (id),
+    started_at  TEXT NOT NULL,  -- UTC ISO 8601
+    ended_at    TEXT,           -- UTC ISO 8601; NULL = currently active
+    updated_at  TEXT NOT NULL,
+    deleted_at  TEXT,
+    server_seq  INTEGER
+);
+
+CREATE INDEX idx_pet_active_spans_pet ON pet_active_spans (pet_id);
