@@ -82,11 +82,11 @@ tier.
   while the feature is enabled (a lifetime counter, not a streak — missing
   days never loses progress toward an egg).
 - Hatching draws a random species **the user doesn't own yet** — no
-  duplicates, ever. Once all 10 are collected, egg accrual stops (the
+  duplicates, ever. Once all 14 are collected, egg accrual stops (the
   workouts-toward-egg counter freezes; the Pets page swaps the egg-progress
   line for a "collection complete 🏆" state).
-- Species roster (10): Turtle, Frog, Crab, Lion, Octopus, Pangolin,
-  Dragon, Snake, Parakeet, Monkey.
+- Species roster (14): Turtle, Frog, Crab, Lion, Octopus, Pangolin,
+  Dragon, Snake, Parakeet, Monkey, Cow, Minotaur, Hamster, Scorpion.
 - **Naming**: free-text input, or a "Roll a name" button. Generated names
   come from a small in-code list per species (alliteration encouraged:
   "Tank" the turtle, "Deadlift Dave" the dragon…) — pure function, no data.
@@ -129,8 +129,9 @@ Target: fully evolve one animal in **~50 achievements or ~20 workouts**.
 - A fresh user doing 3 workouts/week fully evolves their first pet in
   roughly 4–6 weeks, right when novelty needs reinforcing.
 - Egg pacing: every 5 workouts ≈ 250 XP ≈ one evolution stage — so the
-  collection grows at about the rate one pet matures. Collecting all 10
-  species ≈ 45–50 workouts (~4 months at 3/week): a good long tail.
+  collection grows at about the rate one pet matures. Collecting all 14
+  species (1 opt-in egg + 13 earned) ≈ 65 workouts (~5 months at 3/week):
+  a good long tail.
 
 Numbers to keep in one place (`frontend/src/lib/pets/config.ts`):
 thresholds, workout XP, egg cadence — so rebalancing is a one-file change.
@@ -174,7 +175,7 @@ Two new synced stores + profile fields (all following the checklists in
 ```
 pets
   id           TEXT  UUID (PK)
-  species      TEXT  'turtle' | 'frog' | … (10 values, CHECK-constrained)
+  species      TEXT  'turtle' | 'frog' | … (14 values, CHECK-constrained)
   name         TEXT  user-chosen or generated
   xp           INTEGER NOT NULL DEFAULT 0   -- lifetime; stage is derived
   hatched_at   TEXT  UTC ISO 8601
@@ -258,7 +259,7 @@ the collection loop meaningful.
 
 ## Pixel art
 
-41 sprites: 10 species × 4 stages + 1 egg (shared egg, tinted per reveal).
+57 sprites: 14 species × 4 stages + 1 egg (shared egg, tinted per reveal).
 
 - **Format: coded pixel grids rendered as SVG** — each sprite is a small
   (16×16 baby → 24×24 jacked) grid of palette indexes in a TS module
@@ -272,9 +273,9 @@ the collection loop meaningful.
   (broad shoulders, visible arms, tiny dumbbell where it lands
   comedically — a dragon curling a barbell).
 - A dev-only sprite sheet page (behind the existing Settings developer
-  gate) renders all 41 for review.
+  gate) renders all 57 for review.
 
-This is the highest-effort part of the feature by far (~41 hand-authored
+This is the highest-effort part of the feature by far (~57 hand-authored
 grids). It's parallelizable and stubbing is easy: ship with 3 species
 first behind the same egg odds, add the rest incrementally — the data
 model doesn't care.
@@ -295,7 +296,7 @@ model doesn't care.
 - **Opt-in grant**: exactly 1 retroactive egg and a retroactive XP credit
   capped at 1000 — one free full evolution, nothing more (see §1).
 - **No duplicate species**: eggs always hatch an unowned species; egg
-  accrual stops once all 10 are collected.
+  accrual stops once all 14 are collected.
 - **Workout XP is 40 flat**: no per-exercise bonus, and "submit without
   stats" completions pay the same 40 as any other completed workout.
 - **Cross-device races are accepted**: ledger rows merge fine (unique
