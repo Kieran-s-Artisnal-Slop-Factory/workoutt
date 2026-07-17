@@ -19,6 +19,7 @@
   import type {
     Exercise,
     MeasurementType,
+    Pet,
     UserProfile,
     Workout,
     WorkoutExercise,
@@ -310,7 +311,20 @@
     showFinishConfirm = false;
     busy = true;
     const startedAt = workout.started_at;
-    await finishWorkout(
+
+    // Pet game: snapshot the active pet so the summary can report the XP
+    // gained across the workout grant AND the achievement grants below.
+    let petBefore: { id: string; xp: number } | null = null;
+    try {
+      const { petsEnabled } = await import('../../lib/pets/xp');
+      const profile = (await all<UserProfile>('user_profile'))[0];
+      if (petsEnabled(profile) && profile?.active_pet_id) {
+        const pet = await get<Pet>('pets', profile.active_pet_id);
+        if (pet) petBefore = { id: pet.id, xp: pet.xp };
+      }
+    } catch {}
+
+    const workoutGrant = await finishWorkout(
       { ...($state.snapshot(workout) as Workout), notes: notes.trim() || null },
       completeOn ?? undefined
     );
@@ -342,6 +356,28 @@
         scopeName: n.scopeName,
       }));
 
+      // Pet block: XP delta across the workout grant + achievement grants.
+      let petSummary: unknown = null;
+      if (petBefore) {
+        try {
+          const { stageForXp } = await import('../../lib/pets/config');
+          const after = await get<Pet>('pets', petBefore.id);
+          if (after && after.xp > petBefore.xp) {
+            const stageBefore = stageForXp(petBefore.xp);
+            const stageAfter = stageForXp(after.xp);
+            petSummary = {
+              name: after.name,
+              species: after.species,
+              xp: after.xp,
+              gained: after.xp - petBefore.xp,
+              stage: stageAfter,
+              evolved: stageBefore !== stageAfter,
+              eggEarned: workoutGrant?.eggEarned ?? false,
+            };
+          }
+        } catch {}
+      }
+
       sessionStorage.setItem(
         'workoutt-workout-summary',
         JSON.stringify({
@@ -352,6 +388,7 @@
           exercises: exerciseSummaries,
           prs,
           achievements: unlocked,
+          pet: petSummary,
         })
       );
     } catch (err) {

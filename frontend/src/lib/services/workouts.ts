@@ -110,8 +110,29 @@ export async function startAdhocWorkout(template: WorkoutTemplate): Promise<Work
   return (await get<Workout>('workouts', workout.id))!;
 }
 
-export async function finishWorkout(workout: Workout, completedAt?: string): Promise<void> {
+/**
+ * Complete a workout. Also pays the flat pet-game workout XP (keyed by the
+ * workout id, so re-finishing after an edit never double-pays; a no-op for
+ * users who never opted in). Returns the grant result so callers can show
+ * XP / evolution in the post-workout summary.
+ */
+export async function finishWorkout(
+  workout: Workout,
+  completedAt?: string
+): Promise<import('../pets/xp').GrantResult | null> {
   await put('workouts', { ...workout, state: 'completed', completed_at: completedAt ?? nowIso() });
+  try {
+    const [{ grantXp }, { WORKOUT_XP }] = await Promise.all([
+      import('../pets/xp'),
+      import('../pets/config'),
+    ]);
+    return await grantXp([
+      { source_type: 'workout', source_key: workout.id, xp: WORKOUT_XP },
+    ]);
+  } catch (err) {
+    console.error('[workoutt pets] workout XP grant failed:', err);
+    return null;
+  }
 }
 
 /**

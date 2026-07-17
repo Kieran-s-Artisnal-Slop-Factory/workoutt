@@ -144,6 +144,55 @@
     persistState = await requestPersistentStorage();
   }
 
+  // --- Pet game (pets.md §1/§8) ---
+  let petsBusy = $state(false);
+  /** Banked XP awaiting a spend/dump decision on re-enable; 0 = no modal. */
+  let petsBankChoice = $state(0);
+
+  async function refreshProfileRow() {
+    profile = (await all<UserProfile>('user_profile'))[0];
+  }
+
+  async function startPets() {
+    petsBusy = true;
+    const { enablePets } = await import('../../lib/pets/xp');
+    await enablePets();
+    await refreshProfileRow();
+    petsBusy = false;
+    location.href = href('/pets/');
+  }
+
+  async function turnPetsOff() {
+    petsBusy = true;
+    const { disablePets } = await import('../../lib/pets/xp');
+    await disablePets();
+    await refreshProfileRow();
+    petsBusy = false;
+  }
+
+  async function turnPetsOn() {
+    petsBusy = true;
+    const { enablePets } = await import('../../lib/pets/xp');
+    const { bankedXp } = await enablePets();
+    await refreshProfileRow();
+    petsBusy = false;
+    if (bankedXp > 0) petsBankChoice = bankedXp;
+  }
+
+  async function petsBankSpend() {
+    const { spendBank } = await import('../../lib/pets/xp');
+    await spendBank();
+    petsBankChoice = 0;
+    await refreshProfileRow();
+  }
+
+  async function petsBankDump() {
+    const { dumpBank } = await import('../../lib/pets/xp');
+    await dumpBank();
+    petsBankChoice = 0;
+    await refreshProfileRow();
+  }
+
   let exportScope: ExportScope = $state('templates_user');
 
   async function onImportFile(e: Event) {
@@ -269,6 +318,59 @@
       <Card title="Preferences">
         <p class="muted">No profile yet — <a href={href('/onboarding/')}>run onboarding</a>.</p>
       </Card>
+    {/if}
+
+    {#if profile}
+      <Card title="Pet game">
+        {#if !(profile.pets_started_at ?? null)}
+          <p class="muted" style="margin-bottom: var(--space-3);">
+            An optional collection game: training earns XP that evolves
+            pixel-art companions. Purely cosmetic — it never touches your
+            training data.
+          </p>
+          <button class="btn btn-primary" onclick={startPets} disabled={petsBusy}>
+            {petsBusy ? 'Starting…' : 'Start the pet game'}
+          </button>
+        {:else if profile.pets_enabled}
+          <p class="muted" style="margin-bottom: var(--space-3);">
+            The pet game is on — manage your collection on the
+            <a href={href('/pets/')}>Pets page</a>.
+          </p>
+          <button class="btn" onclick={turnPetsOff} disabled={petsBusy}>Disable pet game</button>
+          <p class="muted" style="margin-top: var(--space-2); font-size: var(--font-size-sm);">
+            Disabling hides pets everywhere but deletes nothing — points keep
+            accruing to a bank you can spend if you come back.
+          </p>
+        {:else}
+          <p class="muted" style="margin-bottom: var(--space-3);">
+            The pet game is off. Your collection is safe
+            {#if (profile.pets_banked_xp ?? 0) > 0}
+              and <strong>{profile.pets_banked_xp} XP</strong> is banked
+            {/if} — re-enable to keep playing.
+          </p>
+          <button class="btn btn-primary" onclick={turnPetsOn} disabled={petsBusy}>
+            {petsBusy ? 'Enabling…' : 'Re-enable pet game'}
+          </button>
+        {/if}
+      </Card>
+    {/if}
+
+    {#if petsBankChoice > 0}
+      <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="pets-bank-title">
+        <div class="modal">
+          <h3 id="pets-bank-title">Welcome back! 🐾</h3>
+          <p>
+            While the pet game was off you banked
+            <strong>{petsBankChoice} XP</strong>. What should happen to it?
+          </p>
+          <div class="modal-actions">
+            <button class="btn" onclick={petsBankDump}>Start fresh (dump it)</button>
+            <button class="btn btn-primary" onclick={petsBankSpend}>
+              Spend it on my active pet
+            </button>
+          </div>
+        </div>
+      </div>
     {/if}
 
     <Card title="Appearance">

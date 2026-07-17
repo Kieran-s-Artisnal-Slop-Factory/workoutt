@@ -79,7 +79,46 @@ export interface UserProfile extends SyncFields {
    * 0 means all time. May be undefined on older rows — read with `?? 3`.
    */
   weight_chart_months?: number;
+  /**
+   * Pet collection game (pets.md). All optional — rows predate the feature.
+   * `pets_enabled` is the live toggle; `pets_started_at` marks the first
+   * opt-in ever (null = never opted in, so no XP is ledgered at all).
+   * Read with `?? false` / `?? null` / `?? 0`.
+   */
+  pets_enabled?: boolean;
+  pets_started_at?: string | null;
+  active_pet_id?: string | null;
+  /** XP accrued while the game was disabled, spendable on re-enable. */
+  pets_banked_xp?: number;
   onboarding_completed_at: string | null;
+}
+
+/** A collected animal (pet game, pets.md). Stage is derived from xp. */
+export interface Pet extends SyncFields {
+  /** One of PET_SPECIES (lib/pets/sprites/types.ts). */
+  species: string;
+  name: string;
+  /** Lifetime XP; evolution stage is derived, never stored. */
+  xp: number;
+  /** UTC ISO 8601. */
+  hatched_at: string;
+}
+
+export type PetXpSource = 'achievement' | 'workout' | 'bank_spend';
+
+/**
+ * XP idempotency ledger: one row per unique XP-worthy event, so
+ * re-evaluation, sync replays, and imports can never double-pay.
+ * Uniqueness is (source_type, source_key). pet_id null = banked.
+ */
+export interface PetXpEvent extends SyncFields {
+  source_type: PetXpSource;
+  /** Award tuple / workout id / one-off grant id. */
+  source_key: string;
+  pet_id: string | null;
+  xp: number;
+  /** UTC ISO 8601. */
+  created_at: string;
 }
 
 export interface BodyWeightEntry extends SyncFields {
@@ -242,6 +281,8 @@ export const STORES: Record<string, { indexes: StoreIndex[] }> = {
   workout_exercises: { indexes: [{ name: 'workout_id' }] },
   workout_sets: { indexes: [{ name: 'workout_exercise_id' }] },
   achievement_awards: { indexes: [] },
+  pets: { indexes: [] },
+  pet_xp_events: { indexes: [{ name: 'source_key' }] },
 };
 
 export type StoreName = keyof typeof STORES;

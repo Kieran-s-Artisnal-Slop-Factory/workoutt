@@ -1,0 +1,11 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PetsApp from '../components/apps/PetsApp.svelte';
+---
+
+<Layout title="Pets">
+  <div class="page-header">
+    <h1>Pets</h1>
+  </div>
+  <PetsApp client:only="svelte" />
+</Layout>

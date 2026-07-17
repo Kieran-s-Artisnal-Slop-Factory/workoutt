@@ -18,6 +18,7 @@
   import { href } from '../../lib/paths';
   import type {
     Exercise,
+    Pet,
     Program,
     UserProfile,
     Workout,
@@ -26,7 +27,11 @@
     WorkoutTemplate,
     WorkoutTemplateExercise,
   } from '../../lib/db/types';
+  import { petsEnabled } from '../../lib/pets/xp';
+  import { stageForXp, nextThreshold, STAGE_LABELS, STAGE_THRESHOLDS } from '../../lib/pets/config';
+  import { SPRITES, type PetSpecies } from '../../lib/pets/sprites';
   import Card from '../Card.svelte';
+  import PixelSprite from '../PixelSprite.svelte';
 
   let loading = $state(true);
   let profile: UserProfile | undefined = $state();
@@ -76,6 +81,16 @@
     prs: { exercise: string; label: string; value: number; secondary: number | null }[];
     /** Achievements unlocked by this workout. Absent on older payloads. */
     achievements?: { title: string; description: string; scopeName: string | null }[];
+    /** Pet-game gains from this workout (pets.md). Absent when opted out. */
+    pet?: {
+      name: string;
+      species: string;
+      xp: number;
+      gained: number;
+      stage: string;
+      evolved: boolean;
+      eggEarned: boolean;
+    } | null;
   }
   let summary: WorkoutSummary | null = $state(null);
 
@@ -144,7 +159,14 @@
     loading = false;
   });
 
+  // Pet companion widget (pets.md §7): active pet, when the game is on.
+  let activePet: Pet | null = $state(null);
+
   async function refresh() {
+    activePet = null;
+    if (petsEnabled(profile) && profile?.active_pet_id) {
+      activePet = (await get<Pet>('pets', profile.active_pet_id)) ?? null;
+    }
     nextWorkout = await getNextWorkout();
     program = await getActiveProgram();
     if (program) progress = await programProgress(program);
@@ -476,6 +498,29 @@
           </div>
         {/if}
 
+        {#if summary.pet}
+          <div class="summary-pet">
+            {#if SPRITES[summary.pet.species as PetSpecies]}
+              {@const set = SPRITES[summary.pet.species as PetSpecies]}
+              <PixelSprite
+                grid={set.stages[stageForXp(summary.pet.xp)]}
+                palette={set.palette}
+                size={56}
+                title={summary.pet.name}
+              />
+            {/if}
+            <div class="summary-pet-text">
+              <strong>{summary.pet.name} gained {summary.pet.gained} XP</strong>
+              {#if summary.pet.evolved}
+                <span class="pet-evolved">Evolved into a {summary.pet.stage} {summary.pet.species}! 🎉</span>
+              {/if}
+              {#if summary.pet.eggEarned}
+                <span class="muted">You earned a new egg 🥚 — hatch it on the <a href={href('/pets/')}>Pets page</a>.</span>
+              {/if}
+            </div>
+          </div>
+        {/if}
+
         {#if summary.exercises && summary.exercises.length > 0}
           <div class="summary-exercises">
             {#each summary.exercises as ex}
@@ -554,6 +599,38 @@
   {/if}
 
   <div class="stack">
+    {#if activePet}
+      {@const set = SPRITES[activePet.species as PetSpecies]}
+      {@const next = nextThreshold(activePet.xp)}
+      {@const prev = [...STAGE_THRESHOLDS].reverse().find((t) => t.xp <= activePet.xp)}
+      <a class="pet-strip" href={href('/pets/')}>
+        {#if set}
+          <PixelSprite
+            grid={set.stages[stageForXp(activePet.xp)]}
+            palette={set.palette}
+            size={48}
+            title={`${activePet.name} the ${activePet.species}`}
+          />
+        {/if}
+        <div class="pet-strip-info">
+          <strong>{activePet.name}</strong>
+          <span class="muted">
+            {STAGE_LABELS[stageForXp(activePet.xp)]} {activePet.species}
+            {#if next}
+              · {activePet.xp} / {next.xp} XP
+            {:else}
+              · fully evolved 💪
+            {/if}
+          </span>
+          <div class="pet-strip-bar">
+            <div
+              class="pet-strip-fill"
+              style={`width: ${next && prev ? Math.min(100, ((activePet.xp - prev.xp) / (next.xp - prev.xp)) * 100) : 100}%`}
+            ></div>
+          </div>
+        </div>
+      </a>
+    {/if}
     <div class="grid-2">
       <Card title="Next workout">
         {#if nextWorkout}
@@ -748,6 +825,67 @@
 {/if}
 
 <style>
+  .pet-strip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--space-2) var(--space-3);
+    text-decoration: none;
+    color: var(--text-color);
+  }
+
+  .pet-strip:hover {
+    border-color: var(--color-primary);
+  }
+
+  .pet-strip-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .pet-strip-info .muted {
+    font-size: var(--font-size-sm);
+  }
+
+  .pet-strip-bar {
+    height: 0.35rem;
+    border-radius: var(--radius-full);
+    background: var(--border-color);
+    overflow: hidden;
+  }
+
+  .pet-strip-fill {
+    height: 100%;
+    border-radius: var(--radius-full);
+    background: var(--color-primary);
+  }
+
+  .summary-pet {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    background: var(--color-primary-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+  }
+
+  .summary-pet-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .pet-evolved {
+    font-weight: 700;
+    color: var(--color-primary-strong);
+  }
+
   .badge {
     display: inline-block;
     background: var(--color-warning);

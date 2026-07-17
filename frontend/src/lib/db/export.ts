@@ -46,6 +46,8 @@ const USER_STORES = [
   'workout_exercises',
   'workout_sets',
   'achievement_awards',
+  'pets',
+  'pet_xp_events',
 ];
 
 export function storesForScope(scope: ExportScope): string[] {

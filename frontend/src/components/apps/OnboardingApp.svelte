@@ -61,6 +61,9 @@
     return Math.round(inches * CM_PER_IN * 10) / 10;
   }
 
+  /** Pet-game opt-in (pets.md §1) — off by default, enabled after submit. */
+  let petsOptIn = $state(false);
+
   let mode: 'offline' | 'sync' = $state('offline');
   let serverUrl = $state('');
   let testing = $state(false);
@@ -201,6 +204,11 @@
 
       // Ask the browser to protect our data from eviction (result shown in Settings).
       await requestPersistentStorage();
+
+      if (petsOptIn) {
+        const { enablePets } = await import('../../lib/pets/xp');
+        await enablePets();
+      }
 
       // Offer the guided program walkthrough — unless they already have
       // program templates (e.g. recovered install or data pulled via sync).
@@ -354,6 +362,18 @@
         {/if}
       </div>
 
+      <label class="pets-check">
+        <input type="checkbox" bind:checked={petsOptIn} />
+        <span>
+          Hatch a workout buddy? 🥚
+          <span class="muted helptext" style="display: block; margin-bottom: 0;">
+            An optional collection game: training earns XP that evolves
+            pixel-art companions. Purely cosmetic — you can turn it off any
+            time in Settings.
+          </span>
+        </span>
+      </label>
+
       <button class="btn btn-primary" type="submit" disabled={saving}>
         {saving ? 'Saving…' : 'Get started'}
       </button>
@@ -445,6 +465,18 @@
   .helptext {
     font-size: var(--font-size-sm);
     margin-bottom: var(--space-3);
+  }
+
+  .pets-check {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    color: var(--text-color);
+  }
+
+  .pets-check input {
+    width: auto;
+    margin-top: 0.25rem;
   }
 
   .server-row {

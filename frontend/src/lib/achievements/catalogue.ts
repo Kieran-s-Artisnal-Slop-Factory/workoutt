@@ -17,6 +17,8 @@ export interface AchievementTier {
   threshold: number;
   /** Tier suffix for display, e.g. 'I' / 'II' / 'III'. */
   label?: string;
+  /** Pet-game XP this tier pays when awarded (pets.md §2). */
+  xp: number;
 }
 
 interface BaseDef {
@@ -93,10 +95,14 @@ export interface TemplateDef extends BaseDef {
 
 export type AchievementDef = AccountDef | ExerciseDef | ProgramDef | TemplateDef;
 
-const t = (tier: number, threshold: number, label?: string): AchievementTier => ({
+/** Default pet-XP by tier number: I-or-single 15, II 25, III 40. */
+const DEFAULT_TIER_XP: Record<number, number> = { 0: 15, 1: 15, 2: 25, 3: 40 };
+
+const t = (tier: number, threshold: number, label?: string, xp?: number): AchievementTier => ({
   tier,
   threshold,
   label,
+  xp: xp ?? DEFAULT_TIER_XP[tier] ?? 15,
 });
 
 // --- 1. Account-wide — trigger once ever. -------------------------------
@@ -135,7 +141,7 @@ export const ACCOUNT_DEFS: AccountDef[] = [
     description: 'Work out on 7 distinct days within a single week.',
     scope: 'account',
     unit: 'days',
-    tiers: [t(0, 7)],
+    tiers: [t(0, 7, undefined, 40)],
     metric: (a) => a.bestWeekDays,
   },
   {
@@ -144,7 +150,7 @@ export const ACCOUNT_DEFS: AccountDef[] = [
     description: 'Hit every body-part group at least once.',
     scope: 'account',
     unit: 'count',
-    tiers: [t(0, BODY_PARTS.length)],
+    tiers: [t(0, BODY_PARTS.length, undefined, 40)],
     metric: (a) => a.bodyPartsCovered,
   },
   {
@@ -295,3 +301,12 @@ export const ALL_DEFS: AchievementDef[] = [
 ];
 
 export const DEF_BY_ID: Map<string, AchievementDef> = new Map(ALL_DEFS.map((d) => [d.id, d]));
+
+/**
+ * Pet-game XP an award pays (pets.md). Falls back to the base rate for
+ * orphan awards whose definition was removed from the catalogue.
+ */
+export function xpForAward(achievementId: string, tier: number): number {
+  const def = DEF_BY_ID.get(achievementId);
+  return def?.tiers.find((tr) => tr.tier === tier)?.xp ?? 15;
+}

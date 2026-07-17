@@ -39,6 +39,16 @@ const MIGRATIONS: Migration[] = [
       db.createObjectStore('achievement_awards', { keyPath: 'id' });
     }
   },
+  // v4 — pet collection game (pets.md). Guarded like v3.
+  (db) => {
+    if (!db.objectStoreNames.contains('pets')) {
+      db.createObjectStore('pets', { keyPath: 'id' });
+    }
+    if (!db.objectStoreNames.contains('pet_xp_events')) {
+      const store = db.createObjectStore('pet_xp_events', { keyPath: 'id' });
+      store.createIndex('source_key', 'source_key', { multiEntry: false });
+    }
+  },
 ];
 
 export const DB_VERSION = MIGRATIONS.length;

@@ -230,5 +230,23 @@ export async function evaluateAchievements(aggregates?: Aggregates): Promise<New
     }
   }
 
+  // Pet game: new awards pay XP (no-op unless the user opted in; the
+  // ledger dedupes so awards already credited at opt-in never pay again).
+  if (fresh.length > 0) {
+    try {
+      const { grantXp } = await import('../pets/xp');
+      const { xpForAward } = await import('./catalogue');
+      await grantXp(
+        fresh.map((n) => ({
+          source_type: 'achievement' as const,
+          source_key: awardKey(n.award),
+          xp: xpForAward(n.award.achievement, n.award.tier),
+        }))
+      );
+    } catch (err) {
+      console.error('[workoutt pets] achievement XP grant failed:', err);
+    }
+  }
+
   return fresh;
 }

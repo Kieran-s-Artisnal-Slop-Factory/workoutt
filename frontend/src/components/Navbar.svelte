@@ -5,10 +5,22 @@
   let { currentPath = '/' } = $props();
   let open = $state(false);
   let online = $state(true);
+  let petsOn = $state(false);
 
   onMount(() => {
     // Opportunistic background sync, throttled internally.
     import('../lib/sync').then(({ maybeAutoSync }) => maybeAutoSync());
+
+    // Pets nav entry only exists when the pet game is enabled.
+    (async () => {
+      try {
+        const [{ all }, { petsEnabled }] = await Promise.all([
+          import('../lib/db/repo'),
+          import('../lib/pets/xp'),
+        ]);
+        petsOn = petsEnabled((await all('user_profile'))[0]);
+      } catch {}
+    })();
 
     online = navigator.onLine;
     const goOnline = () => (online = true);
@@ -21,15 +33,16 @@
     };
   });
 
-  const links = [
+  const links = $derived([
     { href: href('/'), label: 'Home' },
     { href: href('/exercises/'), label: 'Exercises' },
     { href: href('/workouts/'), label: 'Workouts' },
     { href: href('/programs/'), label: 'Programs' },
     { href: href('/records/'), label: 'Records' },
     { href: href('/achievements/'), label: 'Achievements' },
+    ...(petsOn ? [{ href: href('/pets/'), label: 'Pets' }] : []),
     { href: href('/settings/'), label: 'Settings' },
-  ];
+  ]);
 
   const normalize = (p) => p.replace(/\/+$/, '') || '/';
   const isCurrent = (linkHref) => normalize(linkHref) === normalize(currentPath);
