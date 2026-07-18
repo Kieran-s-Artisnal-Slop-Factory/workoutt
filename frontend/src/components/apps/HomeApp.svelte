@@ -100,6 +100,19 @@
     (n) => (n ? `Let's get moving, ${n}` : "Let's get moving"),
     (n) => (n ? `Good to see you, ${n}` : 'Good to see you'),
     (n) => (n ? `Time to train, ${n}` : 'Time to train'),
+    (n) => (n ? `Locked in ${n}?` : 'Locked in'),
+    (n) => (n ? `Become speed ${n}` : 'Time to become speed'),
+    (n) => (n ? `It's skeedadle o'clock ${n}` : `It's skeedadle o'clock`),
+    (n) => (n ? `It's elbow greese o'clock ${n}` : `It's elbow greese o'clock`),
+    (n) => (n ? `Athletics, Performance, ${n}` : `Athletics, Performance, Unnamed Athlete`),
+    (_) => (`Live, laugh, laundry`),
+    (_) => (`1 push up today is worth 1 push up tomorrow`),
+    (_) => (`If you never try, you'll never know, yaknow`),
+    (_) => (`Treadmills are more afraid of you than you are of them`),
+    (_) => (`Train hard, sleep hard, wake up hard 😤`),
+    (_) => (`Building the best ass in the west`),
+    (n) => (n ? `Ready to defy gravity ${n}?` : 'Ready to defy gravity'),
+    (n) => (n ? `Time to take your feelings, and put them in your muscles ${n}` : 'Take your feelings, put them in your muscles'),
   ];
 
   const today = todayLocal();

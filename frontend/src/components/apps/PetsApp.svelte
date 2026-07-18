@@ -312,7 +312,7 @@
                   onclick={() => (detailStageView = st.stage)}
                 >
                   <div class="stage-thumb">
-                    <PixelSprite grid={set.stages[st.stage]} palette={set.palette} size={48} title={st.stage} />
+                    <PixelSprite grid={set.stages[st.stage]} palette={set.palette} size={48} title={st.stage} animation={reached?"idle" as any: ""} />
                   </div>
                   <span class="stage-name">{STAGE_LABELS[st.stage]}</span>
                   <span class="stage-when muted">
@@ -695,6 +695,11 @@
     cursor: default;
     opacity: 0.5;
     filter: grayscale(1);
+  }
+
+  .stage-cell.locked .stage-thumb{
+    filter: brightness(0.1);
+
   }
 
   .stage-thumb {

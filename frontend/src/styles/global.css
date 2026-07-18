@@ -33,7 +33,7 @@ h2,
 h3,
 h4 {
   line-height: 1.2;
-  text-wrap: balance;
+  text-wrap: pretty;
 }
 
 h1 {
