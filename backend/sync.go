@@ -58,11 +58,13 @@ var tables = map[string]tableMeta{
 	"user_profile": {
 		columns: cols("id", "name", "highlighted_exercise_ids", "display_weight_unit",
 			"display_distance_unit", "age_years", "height_cm", "experience_level",
-			"weight_tracking_enabled", "weight_chart_months", "pets_enabled",
-			"pets_started_at", "active_pet_id", "pets_banked_xp", "pets_allow_duplicates",
-			"onboarding_completed_at"),
+			"weight_tracking_enabled", "weight_chart_months", "rest_timer_default_seconds",
+			"notifications_enabled", "notify_next_workout", "notify_stale_workout",
+			"next_workout_reminder_time", "pets_enabled", "pets_started_at", "active_pet_id",
+			"pets_banked_xp", "pets_allow_duplicates", "onboarding_completed_at"),
 		jsonCols: set("highlighted_exercise_ids"),
-		boolCols: set("weight_tracking_enabled", "pets_enabled", "pets_allow_duplicates"),
+		boolCols: set("weight_tracking_enabled", "pets_enabled", "pets_allow_duplicates",
+			"notifications_enabled", "notify_next_workout", "notify_stale_workout"),
 	},
 	"body_weight_entries": {
 		columns: cols("id", "weight_kg", "measured_on"),
@@ -120,6 +122,7 @@ var tables = map[string]tableMeta{
 type server struct {
 	db     *sql.DB
 	dbPath string
+	vapid  vapidKeys
 }
 
 type pushRequest struct {

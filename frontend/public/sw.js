@@ -9,7 +9,7 @@
  *
  * Bump CACHE_VERSION to invalidate everything after a breaking change.
  */
-const CACHE_VERSION = 'workoutt-v3';
+const CACHE_VERSION = 'workoutt-v4';
 
 // The app may be hosted under a sub-path (e.g. GitHub Pages /workoutt/). The
 // SW file lives at `<base>sw.js`, so its own path yields the base.
@@ -30,6 +30,45 @@ self.addEventListener('activate', (event) => {
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+// Web Push (notifications.md). The server sends a JSON payload
+// {title, body, url, tag}; show it, and route a click to the workout.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { title: 'Workoutt', body: event.data ? event.data.text() : '' };
+  }
+  const title = data.title || 'Workoutt';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: data.body || '',
+      tag: data.tag,
+      data: { url: data.url || BASE },
+      badge: BASE + 'icon.svg',
+      icon: BASE + 'icon.svg',
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || BASE;
+  const url = new URL(target, self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        // Reuse an open tab if we have one.
+        if ('focus' in client) {
+          client.navigate(url).catch(() => {});
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })
   );
 });
 

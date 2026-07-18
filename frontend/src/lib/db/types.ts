@@ -80,6 +80,22 @@ export interface UserProfile extends SyncFields {
    */
   weight_chart_months?: number;
   /**
+   * Default seconds pre-filled into the in-workout rest timer. May be
+   * undefined on older rows — read with `?? 90`.
+   */
+  rest_timer_default_seconds?: number;
+  /**
+   * Reminder preferences (notifications.md). Synced so the push server can
+   * read them; the actual push subscription is per-device (server-only).
+   * `notifications_enabled` is the master switch. Read with `?? false` /
+   * `?? true` / `?? '08:00'`.
+   */
+  notifications_enabled?: boolean;
+  notify_next_workout?: boolean;
+  notify_stale_workout?: boolean;
+  /** Local HH:MM to remind on a workout day. */
+  next_workout_reminder_time?: string;
+  /**
    * Pet collection game (pets.md). All optional — rows predate the feature.
    * `pets_enabled` is the live toggle; `pets_started_at` marks the first
    * opt-in ever (null = never opted in, so no XP is ledgered at all).

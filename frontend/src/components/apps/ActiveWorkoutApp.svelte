@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { all, byIndex, get, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
   import {
     getInProgressWorkout,
@@ -15,6 +15,7 @@
   import { evaluateAchievements } from '../../lib/achievements/evaluate';
   import { kgToDisplay, displayToKg, kmToDisplay, displayToKm, formatWeight, formatDistance, formatDuration } from '../../lib/utils/units';
   import { topBodyParts } from '../../lib/utils/bodyparts';
+  import { showLocalNotification, msUntilStale } from '../../lib/notifications';
   import { href } from '../../lib/paths';
   import type {
     Exercise,
@@ -58,6 +59,122 @@
   let priorNotes: { notes: string; date: string } | null = $state(null);
 
   const wu = $derived(profile?.display_weight_unit ?? 'kg');
+
+  // --- Rest timer (simple per-set countdown; default from Settings) ---
+  const restDefault = $derived(profile?.rest_timer_default_seconds ?? 90);
+  let restRunning = $state(false);
+  let restRemaining = $state(0);
+  /** Whether the timer's been set this session (else we show the default). */
+  let restStarted = $state(false);
+  let restDone = $state(false);
+  let restTick: ReturnType<typeof setInterval> | null = null;
+
+  /** Seconds shown: the live countdown, or the default before first use. */
+  const restDisplay = $derived(restStarted ? restRemaining : restDefault);
+
+  function fmtClock(s: number): string {
+    return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  }
+
+  function restStop() {
+    restRunning = false;
+    if (restTick) {
+      clearInterval(restTick);
+      restTick = null;
+    }
+  }
+
+  function restToggle() {
+    if (restRunning) {
+      restStop(); // pause
+      return;
+    }
+    restDone = false;
+    if (!restStarted || restRemaining <= 0) {
+      restRemaining = restDefault;
+      restStarted = true;
+    }
+    restRunning = true;
+    restTick = setInterval(() => {
+      restRemaining -= 1;
+      if (restRemaining <= 0) {
+        restRemaining = 0;
+        restStop();
+        restDone = true;
+        restBeep();
+      }
+    }, 1000);
+  }
+
+  function restReset() {
+    restStop();
+    restStarted = true;
+    restDone = false;
+    restRemaining = restDefault;
+  }
+
+  function restAdjust(delta: number) {
+    restStarted = true;
+    restDone = false;
+    if (!restRunning && restRemaining <= 0) restRemaining = restDefault;
+    restRemaining = Math.max(0, restRemaining + delta);
+  }
+
+  /** Short beep when a rest ends. Best-effort — never throws. */
+  function restBeep() {
+    try {
+      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.42);
+      osc.onended = () => ctx.close();
+    } catch {
+      /* audio unavailable — the visual "Rest over!" state still shows */
+    }
+  }
+
+  onDestroy(restStop);
+
+  // In-page "did you forget to finish?" reminder (notifications.md). The
+  // reliable local path: while this page is open, fire exactly at the 45-min
+  // mark. The server's Web Push covers the closed-app case. Guard against
+  // re-firing for the same workout.
+  let staleFiredFor: string | null = $state(null);
+
+  async function fireStaleReminder(w: Workout) {
+    if (staleFiredFor === w.id) return;
+    staleFiredFor = w.id;
+    await showLocalNotification({
+      title: 'Still training? ⏱️',
+      body: `You started ${w.name} a while ago — finish it to save your sets.`,
+      tag: `stale_workout:${w.id}`,
+      url: href('/workout/'),
+    });
+  }
+
+  $effect(() => {
+    const w = workout;
+    if (!w || w.state !== 'in_progress' || !w.started_at || editing) return;
+    if (!profile?.notifications_enabled || !(profile?.notify_stale_workout ?? true)) return;
+    if (staleFiredFor === w.id) return;
+    const ms = msUntilStale(w.started_at);
+    if (ms <= 0) {
+      void fireStaleReminder(w);
+      return;
+    }
+    const id = setTimeout(() => void fireStaleReminder(w), ms);
+    return () => clearTimeout(id);
+  });
   const du = $derived(profile?.display_distance_unit ?? 'km');
   const doneCount = $derived(items.flatMap((i) => i.sets).filter((s) => s.completed).length);
   const totalCount = $derived(items.flatMap((i) => i.sets).length);
@@ -532,6 +649,24 @@
     </div>
   </div>
 
+  {#if !editing}
+    <div class="rest-timer" class:running={restRunning} class:done={restDone}>
+      <div class="rest-label">
+        <span>Rest timer</span>
+        <span class="rest-time" aria-live="polite">{fmtClock(restDisplay)}</span>
+      </div>
+      <div class="rest-controls">
+        <button class="btn" onclick={() => restAdjust(-15)} aria-label="Subtract 15 seconds">−15s</button>
+        <button class="btn btn-primary rest-go" onclick={restToggle}>
+          {restRunning ? 'Pause' : restStarted && restRemaining > 0 ? 'Resume' : 'Start rest'}
+        </button>
+        <button class="btn" onclick={() => restAdjust(15)} aria-label="Add 15 seconds">+15s</button>
+        <button class="btn" onclick={restReset} aria-label="Reset rest timer">Reset</button>
+      </div>
+      {#if restDone}<span class="rest-done-label" role="status">Rest over! 💪</span>{/if}
+    </div>
+  {/if}
+
   {#if priorNotes}
     <div class="prior-notes" role="note">
       <strong>📝 Notes from last {workout.name} ({formatDate(priorNotes.date)})</strong>
@@ -922,5 +1057,74 @@
     font-size: var(--font-size-sm);
     font-weight: 700;
     margin-left: var(--space-1);
+  }
+
+  /* --- Rest timer --- */
+  .rest-timer {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    background: var(--surface-color);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+
+  .rest-timer.running {
+    border-color: var(--color-primary);
+  }
+
+  .rest-timer.done {
+    border-color: var(--color-warning);
+    animation: rest-flash 0.5s ease-in-out 3;
+  }
+
+  @keyframes rest-flash {
+    0%, 100% { background: var(--surface-color); }
+    50% { background: var(--color-primary-soft); }
+  }
+
+  .rest-label {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+  }
+
+  .rest-label > span:first-child {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+    font-weight: 600;
+  }
+
+  .rest-time {
+    font-size: 1.9rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .rest-controls {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-left: auto;
+  }
+
+  .rest-go {
+    min-width: 6rem;
+  }
+
+  .rest-done-label {
+    font-weight: 700;
+    color: var(--color-warning);
+    flex-basis: 100%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rest-timer.done {
+      animation: none;
+    }
   }
 </style>

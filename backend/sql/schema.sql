@@ -42,6 +42,13 @@ CREATE TABLE user_profile (
                              CHECK (experience_level IN ('beginner', 'intermediate', 'advanced')),
     weight_tracking_enabled  INTEGER NOT NULL DEFAULT 0,  -- boolean
     weight_chart_months      INTEGER NOT NULL DEFAULT 3,   -- months shown on the weight chart; 0 = all time
+    rest_timer_default_seconds INTEGER NOT NULL DEFAULT 90, -- default fill for the in-workout rest timer
+    -- Reminder preferences (see notifications.md). Synced so the push server
+    -- can read them; actual push subscriptions are per-device (server-only).
+    notifications_enabled      INTEGER NOT NULL DEFAULT 0,      -- boolean; master reminders switch
+    notify_next_workout        INTEGER NOT NULL DEFAULT 1,      -- boolean
+    notify_stale_workout       INTEGER NOT NULL DEFAULT 1,      -- boolean
+    next_workout_reminder_time TEXT NOT NULL DEFAULT '08:00',   -- local HH:MM to remind on a workout day
     -- Pet collection game (see pets.md). pets_started_at marks the first
     -- opt-in ever (NULL = never); pets_enabled is the live toggle.
     pets_enabled             INTEGER NOT NULL DEFAULT 0,  -- boolean

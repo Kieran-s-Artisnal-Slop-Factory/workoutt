@@ -8,9 +8,12 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
+	"time"
 )
 
 func envOr(key, fallback string) string {
@@ -55,6 +58,23 @@ func main() {
 	}
 
 	srv := &server{db: db, dbPath: dbPath}
+
+	// Web Push notifications (see notifications.md). Resolve VAPID keys and
+	// start the reminder scheduler.
+	vapid, err := ensurePush(db)
+	if err != nil {
+		slog.Error("init push", "error", err)
+		os.Exit(1)
+	}
+	srv.vapid = vapid
+	interval := 60 * time.Second
+	if v := os.Getenv("NOTIFY_INTERVAL_SECONDS"); v != "" {
+		if secs, perr := strconv.Atoi(v); perr == nil && secs > 0 {
+			interval = time.Duration(secs) * time.Second
+		}
+	}
+	srv.startScheduler(context.Background(), interval)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -63,6 +83,9 @@ func main() {
 	mux.HandleFunc("POST /sync/push", srv.handlePush)
 	mux.HandleFunc("GET /sync/pull", srv.handlePull)
 	mux.HandleFunc("GET /backup", srv.handleBackup)
+	mux.HandleFunc("GET /push/vapid-public-key", srv.handleVAPIDPublicKey)
+	mux.HandleFunc("POST /push/subscribe", srv.handleSubscribe)
+	mux.HandleFunc("POST /push/unsubscribe", srv.handleUnsubscribe)
 
 	if staticDir := envOr("STATIC_DIR", ""); staticDir != "" {
 		if _, err := os.Stat(staticDir); err == nil {

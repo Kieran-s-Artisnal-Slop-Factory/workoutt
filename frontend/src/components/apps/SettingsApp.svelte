@@ -6,6 +6,13 @@
   import { seedSampleData, type SeedType } from '../../lib/db/seed';
   import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, testConnection, type SyncStatus } from '../../lib/sync';
   import { formatTimestamp } from '../../lib/utils/dates';
+  import {
+    isPushSupported,
+    notificationPermission,
+    getPushSubscription,
+    subscribeThisDevice,
+    unsubscribeThisDevice,
+  } from '../../lib/notifications';
   import { href } from '../../lib/paths';
   import type { UserProfile } from '../../lib/db/types';
   import Card from '../Card.svelte';
@@ -31,6 +38,54 @@
   let syncing = $state(false);
   let testing = $state(false);
   let testResult: { ok: boolean; message: string } | null = $state(null);
+
+  // Reminders (notifications.md)
+  let pushSupported = $state(false);
+  let pushPermission: NotificationPermission = $state('default');
+  let deviceSubscribed = $state(false);
+  let remindersBusy = $state(false);
+  let reminderMsg = $state('');
+
+  async function refreshPushState() {
+    pushSupported = isPushSupported();
+    pushPermission = notificationPermission();
+    deviceSubscribed = pushSupported ? (await getPushSubscription()) != null : false;
+  }
+
+  /** Master toggle: enabling also subscribes this device to push. */
+  async function onToggleReminders() {
+    if (!profile) return;
+    await saveProfile();
+    if (profile.notifications_enabled) await enableOnThisDevice();
+  }
+
+  async function enableOnThisDevice() {
+    remindersBusy = true;
+    reminderMsg = '';
+    const res = await subscribeThisDevice();
+    if (res.ok) {
+      reminderMsg = 'Reminders enabled on this device.';
+    } else if (res.reason === 'no-service-worker') {
+      reminderMsg =
+        'Push needs the installed app (production build). Your reminders still show while the app is open.';
+    } else if (res.reason === 'permission') {
+      reminderMsg = 'Notification permission was not granted.';
+    } else if (res.reason === 'unsupported') {
+      reminderMsg = 'This browser does not support push notifications.';
+    } else {
+      reminderMsg = 'Could not enable push on this device — see the console for details.';
+    }
+    await refreshPushState();
+    remindersBusy = false;
+  }
+
+  async function disableOnThisDevice() {
+    remindersBusy = true;
+    await unsubscribeThisDevice();
+    reminderMsg = 'Push disabled on this device.';
+    await refreshPushState();
+    remindersBusy = false;
+  }
 
   async function testServer() {
     testing = true;
@@ -123,8 +178,16 @@
     syncUrl = getSyncUrl();
     syncStatus = await getSyncStatus();
     profile = (await all<UserProfile>('user_profile'))[0];
-    // Backfill the default so the range <select> has a matching value.
+    // Backfill defaults so the bound inputs have matching values.
     if (profile && profile.weight_chart_months == null) profile.weight_chart_months = 3;
+    if (profile && profile.rest_timer_default_seconds == null) profile.rest_timer_default_seconds = 90;
+    if (profile) {
+      profile.notifications_enabled ??= false;
+      profile.notify_next_workout ??= true;
+      profile.notify_stale_workout ??= true;
+      profile.next_workout_reminder_time ??= '08:00';
+    }
+    await refreshPushState();
     if (typeof navigator !== 'undefined' && navigator.storage?.persisted) {
       persistState = (await navigator.storage.persisted()) ? 'granted' : 'denied';
     } else {
@@ -307,6 +370,28 @@
             </p>
           </div>
         {/if}
+        <div style="margin-top: var(--space-3);">
+          <label for="set-rest-timer">Default rest timer</label>
+          <select
+            id="set-rest-timer"
+            bind:value={profile.rest_timer_default_seconds}
+            onchange={saveProfile}
+          >
+            <option value={30}>30 seconds</option>
+            <option value={45}>45 seconds</option>
+            <option value={60}>1 minute</option>
+            <option value={90}>1 min 30 sec</option>
+            <option value={120}>2 minutes</option>
+            <option value={150}>2 min 30 sec</option>
+            <option value={180}>3 minutes</option>
+            <option value={240}>4 minutes</option>
+            <option value={300}>5 minutes</option>
+          </select>
+          <p class="muted" style="margin-top: var(--space-2); font-size: var(--font-size-sm);">
+            The time pre-filled into the rest timer during a workout. You can
+            still adjust it per rest.
+          </p>
+        </div>
         <p class="muted" style="margin-top: var(--space-3); font-size: var(--font-size-sm);">
           Want the full guided setup again?
           <a href={href('/onboarding/?redo=1')}>Re-run onboarding</a> — your
@@ -317,6 +402,88 @@
     {:else}
       <Card title="Preferences">
         <p class="muted">No profile yet — <a href={href('/onboarding/')}>run onboarding</a>.</p>
+      </Card>
+    {/if}
+
+    {#if profile}
+      <Card title="Reminders">
+        <p class="muted" style="margin-bottom: var(--space-3); font-size: var(--font-size-sm);">
+          Optional nudges for your next workout and for a workout you've left
+          open too long. Delivered by your sync server via Web Push.
+        </p>
+        <label style="display: flex; align-items: center; gap: var(--space-2);">
+          <input
+            type="checkbox"
+            style="width: auto;"
+            bind:checked={profile.notifications_enabled}
+            onchange={onToggleReminders}
+            disabled={remindersBusy}
+          />
+          Enable reminders
+        </label>
+
+        {#if profile.notifications_enabled}
+          <div style="margin-top: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2);">
+            <label style="display: flex; align-items: center; gap: var(--space-2);">
+              <input
+                type="checkbox"
+                style="width: auto;"
+                bind:checked={profile.notify_next_workout}
+                onchange={saveProfile}
+              />
+              Next workout reminder
+            </label>
+            {#if profile.notify_next_workout}
+              <div style="margin-left: var(--space-4);">
+                <label for="set-reminder-time">Remind me at</label>
+                <input
+                  id="set-reminder-time"
+                  type="time"
+                  bind:value={profile.next_workout_reminder_time}
+                  onchange={saveProfile}
+                />
+                <p class="muted" style="margin-top: var(--space-1); font-size: var(--font-size-sm);">
+                  On a day you have a workout scheduled, in the server's timezone.
+                </p>
+              </div>
+            {/if}
+            <label style="display: flex; align-items: center; gap: var(--space-2);">
+              <input
+                type="checkbox"
+                style="width: auto;"
+                bind:checked={profile.notify_stale_workout}
+                onchange={saveProfile}
+              />
+              "Did you forget to finish?" after 45 min
+            </label>
+          </div>
+
+          <div class="device-push" style="margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-color);">
+            <strong style="font-size: var(--font-size-sm);">This device</strong>
+            {#if pushPermission === 'denied'}
+              <p class="muted" style="font-size: var(--font-size-sm);">
+                Notifications are blocked for this site — re-enable them in your
+                browser's site settings, then reload.
+              </p>
+            {:else if !pushSupported}
+              <p class="muted" style="font-size: var(--font-size-sm);">
+                This browser doesn't support push. Reminders will still appear
+                while the app is open.
+              </p>
+            {:else if deviceSubscribed}
+              <p class="muted" style="font-size: var(--font-size-sm);">
+                ✓ Push is on for this device.
+                <button class="btn" onclick={disableOnThisDevice} disabled={remindersBusy}>Disable here</button>
+              </p>
+            {:else}
+              <p class="muted" style="font-size: var(--font-size-sm);">
+                Push isn't set up on this device yet.
+                <button class="btn" onclick={enableOnThisDevice} disabled={remindersBusy}>Enable on this device</button>
+              </p>
+            {/if}
+            {#if reminderMsg}<p class="muted" style="font-size: var(--font-size-sm);">{reminderMsg}</p>{/if}
+          </div>
+        {/if}
       </Card>
     {/if}
 
