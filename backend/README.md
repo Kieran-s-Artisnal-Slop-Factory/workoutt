@@ -48,6 +48,14 @@ auth if it's ever exposed publicly.
 
 ```sh
 go run .                          # dev, db in ./workoutt.db
-docker compose up                 # from the repo root: builds frontend+backend,
-                                  # serves everything on :8080, db on a named volume
+
+# From the repo root — prebuilt image (frontend+backend on :8080, db
+# bind-mounted to ./data on the host):
+docker compose up -d
+# …or build the image from this checkout:
+docker compose -f docker-compose.build.yml up --build
 ```
+
+Images are published to `ghcr.io/descent098/workoutt` (linux/amd64 +
+linux/arm64) by `.github/workflows/docker.yaml` on pushes to master and
+`v*` tags.

@@ -66,7 +66,25 @@ supported way to use the app forever.
 - **[pets.md](pets.md)** / **[acheivements.md](acheivements.md)** — design
   plans for the pet game and achievements systems.
 
-## Running locally
+## Self-hosting with Docker
+
+A prebuilt multi-arch image (amd64 + arm64) is published to GHCR on every
+release. One service serves the app and the sync API on a single origin,
+with the SQLite database bind-mounted to `./data` on the host so it's a
+real file you can back up:
+
+```sh
+docker compose up -d          # pulls ghcr.io/descent098/workoutt:latest
+# app + sync server → http://localhost:8080, database → ./data/workoutt.db
+```
+
+To build the image from this checkout instead:
+
+```sh
+docker compose -f docker-compose.build.yml up --build
+```
+
+## Running locally (development)
 
 ```sh
 # Frontend (Astro + Svelte) — http://localhost:4321
@@ -74,7 +92,4 @@ cd frontend && npm install && npm run dev
 
 # Optional sync backend (Go) — http://localhost:8080
 cd backend && go run .
-
-# Or everything at once (built frontend served by the backend on :8080)
-docker compose up
 ```

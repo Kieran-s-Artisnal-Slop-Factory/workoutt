@@ -1,0 +1,2 @@
+# Host-side database directory created by the docker-compose bind mount.
+data/

@@ -1,16 +1,29 @@
+# Ready-to-go deployment using the prebuilt image from GHCR.
+#
+#   docker compose up -d
+#
+# The database lives in ./data on the HOST (bind mount), so workoutt.db is a
+# real file you can back up, inspect, or copy out — not hidden inside a
+# Docker-managed volume. The app (frontend + sync API, one origin) is served
+# on host port 8080.
+#
+# To build from source instead, use docker-compose.build.yml.
 services:
   workoutt:
-    build: .
+    image: ghcr.io/descent098/workoutt:latest
+    # Pin to a release instead of a moving tag for reproducible deploys, e.g.
+    #   image: ghcr.io/descent098/workoutt:v1.0.0
     ports:
+      # host:container — change the left side to serve elsewhere, e.g.
+      #   "80:8080"   plain HTTP    |   "127.0.0.1:8080:8080"  localhost only
       - "8080:8080"
     environment:
+      # These already default to the same values inside the image; shown so
+      # the wiring is obvious. DB_PATH points at the mounted /data.
       DB_PATH: /data/workoutt.db
+      PORT: "8080"
       # SEED: "true"   # uncomment to seed sample exercises on first start
     volumes:
-      # The sqlite DB must live on a named volume — recreating the container
-      # would otherwise destroy all synced data (see plan.md).
-      - workoutt-data:/data
+      # Host ./data <-> container /data. workoutt.db (+ -wal/-shm) appear here.
+      - ./data:/data
     restart: unless-stopped
-
-volumes:
-  workoutt-data:

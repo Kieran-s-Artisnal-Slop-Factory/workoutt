@@ -1,7 +1,11 @@
 .git
+.github
 .claude
+docs
+data
 frontend/node_modules
 frontend/dist
 backend/*.db
 backend/*.db-*
+backend/*.exe
 plan.md

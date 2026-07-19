@@ -39,19 +39,31 @@ home server, a Raspberry Pi, a NAS, or a small cloud machine all work.
 
 ### The easy way: Docker
 
+A ready-made image is published for both regular servers (amd64) and
+Raspberry Pi / ARM machines (arm64) — no building required.
+
 1. Install [Docker](https://docs.docker.com/get-docker/) on the server
    machine.
-2. Get the Workoutt code onto it (download or `git clone`).
-3. From the project folder, run:
+2. Make a folder for it and download the project's `docker-compose.yml`
+   into it (or just grab the whole project with `git clone`).
+3. From that folder, run:
 
    ```sh
    docker compose up -d
    ```
 
-That's it. The server listens on port **8080** and stores its database on
-a named Docker volume — so your data survives updates and container
-rebuilds. It also serves the app itself, so you can simply browse to
-`http://<server-address>:8080` and use Workoutt from there.
+That's it. The server listens on port **8080** and keeps its database in a
+`data` folder **right next to the compose file** — `data/workoutt.db` is a
+normal file on your server that you can back up or copy like any other.
+Updates and container rebuilds never touch it. The container also serves
+the app itself, so you can simply browse to `http://<server-address>:8080`
+and use Workoutt from there.
+
+To update later: `docker compose pull && docker compose up -d`.
+
+(Prefer building from source? Use
+`docker compose -f docker-compose.build.yml up --build` from a full
+checkout instead.)
 
 ### Without Docker
 
