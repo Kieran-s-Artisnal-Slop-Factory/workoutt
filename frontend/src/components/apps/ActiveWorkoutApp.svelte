@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { all, byIndex, get, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
+  import { getProfile } from '../../lib/db/profile';
   import {
     getInProgressWorkout,
     getNextWorkout,
@@ -197,7 +198,7 @@
   };
 
   onMount(async () => {
-    profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await getProfile());
     exercises = (await all<Exercise>('exercises')).sort((a, b) => a.name.localeCompare(b.name));
 
     const params = new URLSearchParams(location.search);
@@ -434,7 +435,7 @@
     let petBefore: { id: string; xp: number } | null = null;
     try {
       const { petsEnabled } = await import('../../lib/pets/xp');
-      const profile = (await all<UserProfile>('user_profile'))[0];
+      const profile = (await getProfile());
       if (petsEnabled(profile) && profile?.active_pet_id) {
         const pet = await get<Pet>('pets', profile.active_pet_id);
         if (pet) petBefore = { id: pet.id, xp: pet.xp };

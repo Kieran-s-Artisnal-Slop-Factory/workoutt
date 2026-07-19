@@ -8,6 +8,7 @@
    */
   import { onMount } from 'svelte';
   import { all, put, withSyncFields } from '../../lib/db/repo';
+  import { getProfile } from '../../lib/db/profile';
   import { startProgram } from '../../lib/services/workouts';
   import { BODY_PARTS, MEASUREMENT_TYPES } from '../../lib/db/types';
   import type { BodyPart, Exercise, ExperienceLevel, MeasurementType, ProgramTemplate, UserProfile } from '../../lib/db/types';
@@ -203,7 +204,7 @@
     stepError = '';
     try {
       // Save the experience level chosen here (onboarding no longer asks it).
-      const profile = (await all<UserProfile>('user_profile'))[0];
+      const profile = (await getProfile());
       if (profile && profile.experience_level !== experience) {
         await put('user_profile', { ...profile, experience_level: experience });
       }

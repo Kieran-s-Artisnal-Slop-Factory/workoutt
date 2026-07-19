@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { all, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
+  import { getProfile } from '../../lib/db/profile';
   import { startAdhocWorkout } from '../../lib/services/workouts';
   import { formatWeight, formatDistance, formatDuration, displayToKg, kgToDisplay, displayToKm, kmToDisplay } from '../../lib/utils/units';
   import { formatTimestamp } from '../../lib/utils/dates';
@@ -111,7 +112,7 @@
     ]);
     templates.sort((a, b) => a.name.localeCompare(b.name));
     exercises.sort((a, b) => a.name.localeCompare(b.name));
-    profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await getProfile());
 
     const workouts = await all<Workout>('workouts');
     history = workouts

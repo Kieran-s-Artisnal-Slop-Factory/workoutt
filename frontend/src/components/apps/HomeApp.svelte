@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { all, byIndex, get, put } from '../../lib/db/repo';
+  import { getProfile } from '../../lib/db/profile';
   import {
     getNextWorkout,
     getActiveProgram,
@@ -149,7 +150,7 @@
   const du = $derived(profile?.display_distance_unit ?? 'km');
 
   onMount(async () => {
-    profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await getProfile());
     if (!profile?.onboarding_completed_at) {
       location.href = href('/onboarding/');
       return;

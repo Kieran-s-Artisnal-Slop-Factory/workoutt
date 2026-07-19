@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { href } from '../lib/paths';
+  import { getProfile } from '../lib/db/profile';
 
   let { currentPath = '/' } = $props();
   let open = $state(false);
@@ -18,7 +19,7 @@
           import('../lib/db/repo'),
           import('../lib/pets/xp'),
         ]);
-        petsOn = petsEnabled((await all('user_profile'))[0]);
+        petsOn = petsEnabled((await getProfile()));
       } catch {}
     })();
 

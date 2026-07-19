@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { all, byIndex, put, softDelete, softDeleteMany, withSyncFields } from '../../lib/db/repo';
+  import { getProfile } from '../../lib/db/profile';
   import {
     startProgram,
     abandonProgram,
@@ -78,7 +79,7 @@
     ]);
     programTemplates.sort((a, b) => a.name.localeCompare(b.name));
     workoutTemplates.sort((a, b) => a.name.localeCompare(b.name));
-    profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await getProfile());
 
     activeProgram = await getActiveProgram();
     currentDescription = '';

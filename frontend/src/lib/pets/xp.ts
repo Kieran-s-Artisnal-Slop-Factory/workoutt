@@ -10,6 +10,7 @@
  * are deliberately accepted (see pets.md "Resolved decisions").
  */
 import { all, byIndex, get, put, withSyncFields, nowIso } from '../db/repo';
+import { getProfile } from '../db/profile';
 import type {
   AchievementAward,
   BodyPart,
@@ -47,7 +48,7 @@ export interface GrantResult {
 }
 
 async function profileRow(): Promise<UserProfile | undefined> {
-  return (await all<UserProfile>('user_profile'))[0];
+  return (await getProfile());
 }
 
 export const petsStarted = (p: UserProfile | undefined): boolean =>

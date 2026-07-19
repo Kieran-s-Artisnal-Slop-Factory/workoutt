@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { all, put } from '../../lib/db/repo';
+  import { getProfile } from '../../lib/db/profile';
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData, clearAllData, SCOPE_LABELS, type ExportScope } from '../../lib/db/export';
   import { seedSampleData, type SeedType } from '../../lib/db/seed';
@@ -177,7 +178,7 @@
       : 'default';
     syncUrl = getSyncUrl();
     syncStatus = await getSyncStatus();
-    profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await getProfile());
     // Backfill defaults so the bound inputs have matching values.
     if (profile && profile.weight_chart_months == null) profile.weight_chart_months = 3;
     if (profile && profile.rest_timer_default_seconds == null) profile.rest_timer_default_seconds = 90;
@@ -213,7 +214,7 @@
   let petsBankChoice = $state(0);
 
   async function refreshProfileRow() {
-    profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await getProfile());
   }
 
   async function startPets() {

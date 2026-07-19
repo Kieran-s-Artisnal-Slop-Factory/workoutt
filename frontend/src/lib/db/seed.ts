@@ -4,6 +4,7 @@
  * Settings page; refuses to run if exercises already exist.
  */
 import { all, bulkPut, put, withSyncFields, nowIso } from './repo';
+import { newProfile } from './profile';
 import type { Exercise, UserProfile } from './types';
 import { addDays, dayOfWeek, parseLocalDate, todayLocal } from '../utils/dates';
 import {   startProgram,
@@ -51,7 +52,7 @@ async function seedSimple(): Promise<string> {
   if (profiles.length === 0) {
     await put(
       'user_profile',
-      withSyncFields({
+      newProfile({
         name: null,
         highlighted_exercise_ids: [],
         display_weight_unit: 'kg' as const,
@@ -618,7 +619,7 @@ async function seedHeavy(): Promise<string> {
   if (profiles.length === 0) {
     await put(
       'user_profile',
-      withSyncFields({
+      newProfile({
         name: null,
         highlighted_exercise_ids: [],
         display_weight_unit: 'kg' as const,

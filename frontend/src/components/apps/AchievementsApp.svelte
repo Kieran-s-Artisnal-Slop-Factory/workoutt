@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { all } from '../../lib/db/repo';
+  import { getProfile } from '../../lib/db/profile';
   import { buildAggregates, evaluateAchievements, type Aggregates } from '../../lib/achievements/evaluate';
   import {
     ACCOUNT_DEFS,
@@ -27,7 +28,7 @@
   let exercisePage = $state(0);
 
   onMount(async () => {
-    profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await getProfile());
     // Lazy backfill: award anything already earned (idempotent).
     const built = await buildAggregates();
     await evaluateAchievements(built);

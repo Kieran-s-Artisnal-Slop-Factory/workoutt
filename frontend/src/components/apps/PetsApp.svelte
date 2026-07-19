@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { all } from '../../lib/db/repo';
+  import { getProfile } from '../../lib/db/profile';
   import {
     allPets,
     eggsAvailable,
@@ -69,7 +70,7 @@
   });
 
   async function refresh() {
-    profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await getProfile());
     pets = await allPets();
     eggs = await eggsAvailable();
     progress = await eggProgress();

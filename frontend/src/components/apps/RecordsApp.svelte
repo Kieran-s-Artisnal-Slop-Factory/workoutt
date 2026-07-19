@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { all, put, softDelete, withSyncFields } from '../../lib/db/repo';
+  import { getProfile } from '../../lib/db/profile';
   import { computeRecords, type ExerciseRecords, type RecordEntry } from '../../lib/services/records';
   import { formatWeight, kgToDisplay, displayToKg } from '../../lib/utils/units';
   import { formatRecordValue } from '../../lib/utils/records-format';
@@ -38,7 +39,7 @@
   onMount(refresh);
 
   async function refresh() {
-    profile = (await all<UserProfile>('user_profile'))[0];
+    profile = (await getProfile());
     records = await computeRecords();
     weightEntries = (await all<BodyWeightEntry>('body_weight_entries')).sort((a, b) =>
       a.measured_on.localeCompare(b.measured_on)

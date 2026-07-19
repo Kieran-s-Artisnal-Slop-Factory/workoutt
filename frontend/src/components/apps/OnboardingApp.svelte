@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { all, put, withSyncFields, nowIso } from '../../lib/db/repo';
+  import { getProfile, newProfile } from '../../lib/db/profile';
   import { requestPersistentStorage } from '../../lib/db/persistence';
   import { testConnection, setSyncUrl, getSyncUrl, setSyncMode, getSyncMode, syncNow } from '../../lib/sync';
   import { displayToKg, kgToDisplay } from '../../lib/utils/units';
@@ -23,6 +24,13 @@
   let saving = $state(false);
   let submitError = $state('');
   let showProgramModal = $state(false);
+
+  /**
+   * The very first choice (pets.md / sync UX): a brand-new setup, or joining
+   * an existing sync server. 'choose' shows the fork; 'existing' asks only
+   * for the server URL and pulls everything; 'new' is the full setup form.
+   */
+  let flow: 'choose' | 'new' | 'existing' = $state('choose');
 
   let name = $state('');
   let weightUnit: WeightUnit = $state('kg');
@@ -81,22 +89,24 @@
   onMount(async () => {
     redo = new URLSearchParams(location.search).get('redo') === '1';
     try {
-      const profiles = await all<UserProfile>('user_profile');
-      if (profiles[0]?.onboarding_completed_at && !redo) {
+      const profile = await getProfile();
+      if (profile?.onboarding_completed_at && !redo) {
         location.href = href('/');
         return;
       }
-      if (profiles[0]?.onboarding_completed_at && redo) {
+      if (profile?.onboarding_completed_at && redo) {
         // Re-run: merge into the existing profile on submit (no duplicates)
         // and start from the current settings rather than a blank form.
-        existing = profiles[0];
+        existing = profile;
+        flow = 'new';
         await recover();
         loading = false;
         return;
       }
-      existing = profiles[0];
+      existing = profile;
       if (existing) {
         hasPartialState = true;
+        flow = 'new'; // partial local data → straight to the form (recover offered)
       } else {
         // Profile missing but other data present also counts as partial state.
         const [exercises, weights] = await Promise.all([
@@ -104,6 +114,7 @@
           all<BodyWeightEntry>('body_weight_entries'),
         ]);
         hasPartialState = exercises.length > 0 || weights.length > 0;
+        if (hasPartialState) flow = 'new';
       }
     } catch (err) {
       // Damaged storage (e.g. a manually deleted store) — proceed as a fresh
@@ -112,6 +123,45 @@
     }
     loading = false;
   });
+
+  /**
+   * "Connect to an existing server": ignore all local form fields, pull the
+   * whole dataset (profile included) and adopt it. Deliberately creates NO
+   * local profile — that's what caused duplicate-profile / shadowed-settings
+   * bugs across devices.
+   */
+  async function connectExisting(e: SubmitEvent) {
+    e.preventDefault();
+    if (!serverUrl.trim()) return;
+    saving = true;
+    submitError = '';
+    try {
+      setSyncUrl(serverUrl);
+      setSyncMode('sync');
+      sessionStorage.setItem('workoutt-session-synced', '1');
+      const res = await syncNow();
+      if (!res.ok) {
+        submitError = res.error ?? 'Could not sync with that server.';
+        saving = false;
+        return;
+      }
+      await requestPersistentStorage();
+      // The server's profile should now be local. If not, the server is empty
+      // or the URL is wrong — don't silently strand the user offline.
+      const profile = await getProfile();
+      if (!profile?.onboarding_completed_at) {
+        submitError =
+          'Connected, but that server has no set-up account yet. Start a new setup on your first device, or double-check the address.';
+        saving = false;
+        return;
+      }
+      location.href = href('/');
+    } catch (err) {
+      console.error('[workoutt onboarding] connect to existing failed:', err);
+      submitError = 'Could not connect and sync — check the address and that the server is running.';
+      saving = false;
+    }
+  }
 
   /** Best-effort prefill from whatever survived. */
   async function recover() {
@@ -166,13 +216,14 @@
       };
 
       if (existing) {
-        // Merge into the surviving row: keeps its id (sync identity) and any
+        // Merge into the surviving row: keeps its id (the singleton) and any
         // fields onboarding doesn't manage (e.g. highlighted PRs, experience).
         await put('user_profile', { ...existing, ...fields });
       } else {
+        // Fixed singleton id so a second device never mints a duplicate.
         await put(
           'user_profile',
-          withSyncFields({ ...fields, experience_level: null, highlighted_exercise_ids: [] })
+          newProfile({ ...fields, experience_level: null, highlighted_exercise_ids: [] })
         );
       }
 
@@ -230,6 +281,70 @@
 
 {#if loading}
   <p class="muted">Loading…</p>
+{:else if flow === 'choose'}
+  <Card title="Welcome to Workoutt">
+    <p class="muted" style="margin-bottom: var(--space-4);">
+      Are you setting up for the first time, or connecting this device to a
+      sync server you already use?
+    </p>
+    <div class="choose-grid">
+      <button type="button" class="choose-option" onclick={() => (flow = 'new')}>
+        <strong>New setup</strong>
+        <span class="muted">
+          Start fresh on this device. You can turn on syncing later.
+        </span>
+      </button>
+      <button type="button" class="choose-option" onclick={() => (flow = 'existing')}>
+        <strong>Connect to an existing sync server</strong>
+        <span class="muted">
+          Already set up elsewhere? Pull everything — your profile, programs,
+          history — from your server. No other details needed.
+        </span>
+      </button>
+    </div>
+  </Card>
+{:else if flow === 'existing'}
+  <Card title="Connect to your sync server">
+    <p class="muted" style="margin-bottom: var(--space-4);">
+      Enter your server's address. Everything on it will be downloaded to this
+      device — you don't need to re-enter any of your settings.
+    </p>
+
+    {#if submitError}
+      <p class="error-msg" role="alert">⚠️ {submitError}</p>
+    {/if}
+
+    <form class="stack" onsubmit={connectExisting}>
+      <div>
+        <label for="ob-existing-server">Server address</label>
+        <div class="server-row">
+          <input
+            id="ob-existing-server"
+            type="url"
+            required
+            bind:value={serverUrl}
+            placeholder="e.g. http://192.168.1.10:8080"
+          />
+          <button type="button" class="btn" onclick={testServer} disabled={!serverUrl.trim() || testing}>
+            {testing ? 'Testing…' : 'Test'}
+          </button>
+        </div>
+        {#if testResult}
+          <p class={testResult.ok ? 'test-ok' : 'error-msg'} role="status">
+            {testResult.ok ? '✅' : '⚠️'}
+            {testResult.message}
+          </p>
+        {/if}
+      </div>
+
+      <div class="wiz-actions">
+        <button type="button" class="btn" onclick={() => (flow = 'choose')} disabled={saving}>Back</button>
+        <button class="btn btn-primary" type="submit" disabled={saving || !serverUrl.trim()}>
+          {saving ? 'Connecting…' : 'Connect & pull everything'}
+        </button>
+      </div>
+    </form>
+  </Card>
 {:else}
   <Card title="Welcome to Workoutt">
     <p class="muted" style="margin-bottom: var(--space-4);">
@@ -486,6 +601,39 @@
 
   .server-row input {
     flex: 1;
+  }
+
+  .choose-grid {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  }
+
+  .choose-option {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    text-align: left;
+    background: var(--surface-color);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .choose-option:hover {
+    border-color: var(--color-primary);
+  }
+
+  .choose-option strong {
+    color: var(--text-color);
+  }
+
+  .wiz-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
   }
 
   .test-ok {

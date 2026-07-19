@@ -56,13 +56,13 @@ const swScope = href('/');
       // on every page (MPA). A read failure means damaged storage — send the
       // user to onboarding, which offers best-effort recovery. Base-aware so
       // it works when hosted under a sub-path (e.g. GitHub Pages /workoutt/).
-      import { all } from '../lib/db/repo';
-      import type { UserProfile } from '../lib/db/types';
+      import { getProfile } from '../lib/db/profile';
       import { href, isPath } from '../lib/paths';
 
       if (!isPath(location.pathname, '/onboarding/')) {
         try {
-          const profile = (await all<UserProfile>('user_profile'))[0];
+          // getProfile reconciles duplicate profile rows into the singleton.
+          const profile = await getProfile();
           if (!profile?.onboarding_completed_at) {
             location.replace(href('/onboarding/'));
           }
