@@ -15,16 +15,46 @@
  *
  * Bump CACHE_VERSION to invalidate everything after a breaking change.
  */
-const CACHE_VERSION = 'workoutt-v5';
+const CACHE_VERSION = 'workoutt-v6';
+
+// Everything under this prefix belongs to this app. Cache Storage is keyed by
+// ORIGIN, not by service-worker scope, so under muxerr (or any host serving two
+// of these apps on one origin) a bare "delete every key that isn't mine" makes
+// the apps evict each other's caches on every activation. Scoping deletion to
+// this prefix keeps the version bump working — CACHE_VERSION is
+// `<CACHE_PREFIX>vN` — without touching a neighbour.
+const CACHE_PREFIX = 'workoutt-';
 
 // The app may be hosted under a sub-path (e.g. GitHub Pages /workoutt/). The
 // SW file lives at `<base>sw.js`, so its own path yields the base.
 const BASE = self.location.pathname.replace(/sw\.js$/, ''); // '/' or '/workoutt/'
 
-// Never cache dev-server module URLs — serving them stale breaks the app
-// after code changes. (The worker shouldn't be registered in dev at all,
-// but belt and braces.)
-const UNCACHEABLE = [/\/src\//, /\/@/, /\/node_modules\//];
+// Requests that must always hit the network, never the cache.
+//
+// Dev-server module URLs: serving them stale breaks the app after code changes.
+// (The worker shouldn't be registered in dev at all, but belt and braces.)
+//
+// API endpoints: once the client resolves its sync URL from BASE_URL these live
+// under the app's own base — inside this worker's scope. A stale-while-
+// revalidate /sync/pull hands the client a response it has already applied and
+// reports success: silent data loss. And GET /backup would otherwise be served
+// from cache too. Matched on pathname, so the query string (?since=) is
+// irrelevant; the exact endpoints are anchored so a page route like /backups/
+// is not caught, and /sync//push/ stay prefix-matched because the app prefix is
+// not known here. The list is kept identical to readerr's even though workoutt
+// has no /title or /dbsize — these two service workers are otherwise the same
+// file, and the moment they diverge cosmetically nobody diffs them again.
+const UNCACHEABLE = [
+  /\/src\//,
+  /\/@/,
+  /\/node_modules\//,
+  /\/sync\//,
+  /\/healthz$/,
+  /\/backup$/,
+  /\/push\//,
+  /\/title$/,
+  /\/dbsize$/,
+];
 
 // Throttling and blips, not verdicts — worth asking again.
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
@@ -84,7 +114,13 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))))
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE_VERSION)
+            .map((k) => caches.delete(k))
+        )
+      )
       .then(() => self.clients.claim())
   );
 });
