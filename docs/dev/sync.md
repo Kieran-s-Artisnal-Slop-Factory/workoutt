@@ -54,6 +54,19 @@ Device-local, never synced or exported:
 | `lastPullSeq` | high-water `server_seq` already pulled |
 | `lastSyncAt` / `lastError` | status surfaced in Settings |
 
+**Cursor invariant.** `lastPullSeq` only means "I already hold every server
+row with `server_seq ≤ this`" **relative to one server and one local
+dataset**. Two operations break that and therefore forget both cursors
+(`resetSyncCursors()` in `sync.ts`, next sync re-pulls from `since=0`):
+
+- **Changing the server URL** (`setSyncUrl`) — `server_seq` values are
+  per-server, so a leftover cursor would silently under-fetch the new one.
+- **A REPLACE restore** (`importData` of a `templates_user` backup) — it
+  swaps the whole local dataset for the file's rows, so the old cursor
+  over-states what we hold and a plain `since=lastPullSeq` pull would never
+  re-download the history the import dropped. (A `templates` MERGE keeps the
+  cursor: it adds rows without discarding anything.)
+
 ### Conflict resolution (LWW)
 
 - **Server, on push**: replaces a stored row only when the incoming

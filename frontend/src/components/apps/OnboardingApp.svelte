@@ -136,7 +136,7 @@
     saving = true;
     submitError = '';
     try {
-      setSyncUrl(serverUrl);
+      await setSyncUrl(serverUrl);
       setSyncMode('sync');
       sessionStorage.setItem('workoutt-session-synced', '1');
       const res = await syncNow();
@@ -244,7 +244,7 @@
         }
       }
 
-      setSyncUrl(mode === 'sync' ? serverUrl : '');
+      await setSyncUrl(mode === 'sync' ? serverUrl : '');
       setSyncMode(mode);
       if (mode === 'sync') {
         // First sync right away so any existing server data is here before

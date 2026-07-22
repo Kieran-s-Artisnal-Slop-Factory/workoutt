@@ -5,7 +5,7 @@
   import { requestPersistentStorage, type PersistState } from '../../lib/db/persistence';
   import { downloadExport, importData, clearAllData, SCOPE_LABELS, type ExportScope } from '../../lib/db/export';
   import { seedSampleData, type SeedType } from '../../lib/db/seed';
-  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, testConnection, type SyncStatus } from '../../lib/sync';
+  import { syncNow, getSyncStatus, getSyncUrl, setSyncUrl, setSyncMode, testConnection, resetSyncCursors, type SyncStatus } from '../../lib/sync';
   import { formatTimestamp } from '../../lib/utils/dates';
   import {
     isPushSupported,
@@ -161,11 +161,40 @@
     syncStatus = await getSyncStatus();
   }
 
-  function saveSyncUrl() {
-    setSyncUrl(syncUrl);
+  async function saveSyncUrl() {
+    await setSyncUrl(syncUrl);
     syncUrl = getSyncUrl();
     if (syncUrl) setSyncMode('sync'); // configuring a server opts back into syncing
     message = 'Sync server saved.';
+  }
+
+  /**
+   * Recovery: forget the pull/push cursors and sync from scratch (since=0), so
+   * every server row is re-fetched. Fixes a device left with a stale
+   * lastPullSeq (e.g. after restoring a backup or switching servers), where a
+   * normal sync would under-fetch and leave history missing. Non-destructive —
+   * LWW keeps newer local edits and pushes them back.
+   */
+  async function forceFullResync() {
+    if (
+      !confirm(
+        'Re-download everything from the sync server?\n\n' +
+          'This re-fetches all server data from scratch and reconciles it with ' +
+          'this device. It is safe — newer local edits are kept and pushed back. ' +
+          'Use it if data is missing after restoring a backup or changing servers.'
+      )
+    ) {
+      return;
+    }
+    syncing = true;
+    message = '';
+    await resetSyncCursors();
+    const result = await syncNow();
+    syncing = false;
+    message = result.ok
+      ? `Re-download complete: pushed ${result.pushed}, pulled ${result.pulled}.`
+      : `Re-download failed: ${result.error}`;
+    syncStatus = await getSyncStatus();
   }
 
   onMount(async () => {
@@ -622,6 +651,17 @@
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>
       </div>
+      <details class="resync">
+        <summary>Missing data after an import or server change?</summary>
+        <p class="muted">
+          Force a full re-sync: this forgets what's already been pulled and
+          re-downloads everything from the server from scratch, reconciling it
+          with this device. Newer local edits are kept and pushed back.
+        </p>
+        <button class="btn" onclick={forceFullResync} disabled={syncing}>
+          {syncing ? 'Working…' : 'Re-download everything from server'}
+        </button>
+      </details>
     </Card>
 
     <Card title="Backup">
@@ -729,6 +769,23 @@
     border: 1px solid var(--color-primary);
     border-radius: var(--radius-md);
     padding: var(--space-2) var(--space-3);
+  }
+
+  .resync {
+    margin-top: var(--space-3);
+    border-top: 1px solid var(--border-color);
+    padding-top: var(--space-3);
+  }
+
+  .resync summary {
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted-color);
+  }
+
+  .resync p {
+    margin: var(--space-2) 0;
+    font-size: var(--font-size-sm);
   }
 
   .test-ok {
