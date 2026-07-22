@@ -18,6 +18,7 @@
  */
 import { getDB, DB_VERSION } from './db';
 import { STORES } from './types';
+import { resetSyncCursors } from '../sync';
 
 export type ExportScope = 'templates' | 'templates_user';
 
@@ -143,6 +144,13 @@ export async function importData(envelope: ExportEnvelope): Promise<ImportResult
     }
   }
   await tx.done;
+
+  // A REPLACE restore swaps the entire local dataset for the file's rows, whose
+  // server_seq values came from a different device/server. The pull cursor now
+  // over-states what we hold, so forget it: the next sync must re-pull from
+  // scratch (since=0) and reconcile, or server history the import dropped is
+  // never re-fetched. A MERGE leaves existing data and its cursor valid.
+  if (!merge) await resetSyncCursors();
 
   return { scope, mode: merge ? 'merged' : 'replaced', rows };
 }

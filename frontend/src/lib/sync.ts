@@ -56,10 +56,30 @@ export function setSyncMode(mode: 'offline' | 'sync'): void {
   localStorage.setItem(SYNC_MODE_KEY, mode);
 }
 
-export function setSyncUrl(url: string): void {
+export async function setSyncUrl(url: string): Promise<void> {
   const trimmed = url.trim().replace(/\/+$/, '');
+  const before = getSyncUrl();
   if (trimmed) localStorage.setItem(SYNC_URL_KEY, trimmed);
   else localStorage.removeItem(SYNC_URL_KEY);
+  // The cursors below are meaningful ONLY relative to the server that issued
+  // the server_seq values. Pointing at a different server must forget them so
+  // the next sync re-pulls from scratch (since=0) and re-pushes local data —
+  // otherwise a stale high-water mark silently under-fetches that server's
+  // history. No-op when the effective target is unchanged.
+  if (getSyncUrl() !== before) await resetSyncCursors();
+}
+
+/**
+ * Forget the pull/push cursors so the next sync fully reconciles with the
+ * server: pull everything (since=0) and re-push every local row. Safe to call
+ * anytime — LWW makes the extra traffic idempotent. Must be called whenever
+ * the local dataset or the sync target is swapped out from under the cursors
+ * (server change, full-backup restore), since `lastPullSeq` otherwise claims
+ * we already hold rows we no longer have.
+ */
+export async function resetSyncCursors(): Promise<void> {
+  const db = await getDB();
+  await Promise.all([db.delete('sync_meta', 'lastPullSeq'), db.delete('sync_meta', 'lastPushAt')]);
 }
 
 /**
